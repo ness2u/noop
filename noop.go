@@ -30,6 +30,7 @@ func countHandler(w http.ResponseWriter, r *http.Request) {
 
 func mirrorHandler(w http.ResponseWriter, r *http.Request) {
 
+	fmt.Printf("make peace with the mirror, and watch yourself change\n")
 	fmt.Fprintf(w, "%s %s\n", r.Method, r.URL)
 
 	for header, values := range r.Header {
