@@ -1,9 +1,12 @@
 package main
 
-import "fmt"
-import "net/http"
-import "log"
-import "strings"
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+)
 
 var c int64 = 0
 
@@ -12,10 +15,12 @@ func main() {
 	fmt.Println("get /")
 	fmt.Println("get /count")
 	fmt.Println("get /mirror")
+	fmt.Println("get /slow")
 
 	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/count", countHandler)
 	http.HandleFunc("/mirror", mirrorHandler)
+	http.HandleFunc("/slow", slowHandler)
 
 	log.Fatal(http.ListenAndServe(":9000", nil))
 }
@@ -39,5 +44,9 @@ func mirrorHandler(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "%s: %s\n", header, value)
 		}
 	}
+}
 
+func slowHandler(w http.ResponseWriter, r *http.Request) {
+	time.Sleep(time.Second * 1)
+	fmt.Fprintf(w, "a slow response")
 }
