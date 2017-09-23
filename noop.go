@@ -26,14 +26,18 @@ func main() {
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
+	addHeaders(w)
 	fmt.Fprint(w, "nothing")
 }
+
 func countHandler(w http.ResponseWriter, r *http.Request) {
+	addHeaders(w)
 	c = c + 1
 	fmt.Fprintf(w, "%d", c)
 }
 
 func mirrorHandler(w http.ResponseWriter, r *http.Request) {
+	addHeaders(w)
 
 	fmt.Printf("make peace with the mirror, and watch yourself change\n")
 	fmt.Fprintf(w, "%s %s\n", r.Method, r.URL)
@@ -49,4 +53,8 @@ func mirrorHandler(w http.ResponseWriter, r *http.Request) {
 func slowHandler(w http.ResponseWriter, r *http.Request) {
 	time.Sleep(time.Second * 1)
 	fmt.Fprintf(w, "a slow response")
+}
+
+func addHeaders(w http.ResponseWriter) {
+	w.Header().Add("x-correlationId", fmt.Sprintf("cid_%v", time.Now().Unix()))
 }
