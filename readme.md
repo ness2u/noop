@@ -8,4 +8,7 @@
 
 ## what it does
 - `/` does nothing.
-- `/count` does nothing.
+- `/count` counts.
+- `/mirror` shows request headers.
+- `/slow` takes 1 second to respond.
+- `/status?code=<code>` to control response status code.
