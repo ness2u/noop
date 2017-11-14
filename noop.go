@@ -12,20 +12,16 @@ import (
 var c int64 = 0
 
 func main() {
-	fmt.Println("a simple no-op http server is running on localhost:9000")
-	fmt.Println("get /")
-	fmt.Println("get /count")
-	fmt.Println("get /mirror")
-	fmt.Println("get /slow")
-	fmt.Println("get /status?code=500")
+	fmt.Println("a simple no-op http server is running on localhost:8080")
 
 	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/count", countHandler)
+	http.HandleFunc("/counter", countHandler)
 	http.HandleFunc("/mirror", mirrorHandler)
 	http.HandleFunc("/slow", slowHandler)
 	http.HandleFunc("/status", statusHandler)
 
-	log.Fatal(http.ListenAndServe(":9000", nil))
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
