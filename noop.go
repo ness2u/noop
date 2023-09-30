@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,7 +13,8 @@ import (
 var c int64 = 0
 
 func main() {
-	fmt.Println("a simple no-op http server is running on localhost:8080")
+	port := ":" + getenv("PORT", "8080");
+	fmt.Println("a simple no-op http server is running on localhost" + port);
 
 	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/count", countHandler)
@@ -21,7 +23,15 @@ func main() {
 	http.HandleFunc("/slow", slowHandler)
 	http.HandleFunc("/status", statusHandler)
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(port, nil))
+}
+
+func getenv(key, fallback string) string {
+    value := os.Getenv(key)
+    if len(value) == 0 {
+        return fallback
+    }
+    return value
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
