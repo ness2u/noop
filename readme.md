@@ -1,14 +1,21 @@
 # simple noop server
 
 ## build
-`docker build -t ness2u/noop .`
+```
+go build
+docker build -t ness2u/noop .
+```
 
 ## run
-`docker run --rm -ti -p 9000:9000 ness2u/noop`
+```
+PORT=8080 ./noop
+# or
+docker run --rm -ti -p 8080:8080 ness2u/noop
+```
 
 ## what it does
 - `/` does nothing.
 - `/count` counts.
 - `/mirror` shows request headers.
-- `/slow` takes 1 second to respond.
+- `/slow?ms=1000` is just as slow as you want.
 - `/status?code=<code>` to control response status code.
