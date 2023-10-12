@@ -82,9 +82,24 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func slowHandler(w http.ResponseWriter, r *http.Request) {
+	var err error
+	if err = r.ParseForm(); err != nil {
+		panic(err)
+	}
+
+	var ms int
+	if msValues := r.Form["ms"]; len(msValues) > 0 {
+		msValue := msValues[0]
+		if ms, err = strconv.Atoi(msValue); err != nil {
+			ms = 1000
+		}
+	} else {
+		ms = 1000
+	}
+
 	addHeaders(w, r)
-	time.Sleep(time.Second * 1)
-	fmt.Fprintf(w, "a slow response")
+	time.Sleep(time.Millisecond * time.Duration(ms))
+	fmt.Fprintf(w, "a slow response - %v ms", ms)
 }
 
 func addHeaders(w http.ResponseWriter, r *http.Request) {
@@ -94,5 +109,5 @@ func addHeaders(w http.ResponseWriter, r *http.Request) {
 		correlationId = fmt.Sprintf("cid_%v", time.Now().Unix())
 	}
 
-	w.Header().Add("x-correlationId", correlationId)
+	w.Header().Add("x-correlation-id", correlationId)
 }
