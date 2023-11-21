@@ -1,10 +1,10 @@
 package main
 
 import (
-	"os"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,10 +13,12 @@ import (
 var c int64 = 0
 
 func main() {
-	port := ":" + getenv("PORT", "8080");
-	fmt.Println("a simple no-op http server is running on localhost" + port);
+	port := ":" + getenv("PORT", "8080")
+	fmt.Println("a simple no-op http server is running on localhost" + port)
 
 	http.HandleFunc("/", rootHandler)
+	http.HandleFunc("/liveness", rootHandler)
+	http.HandleFunc("/healthcheck", rootHandler)
 	http.HandleFunc("/count", countHandler)
 	http.HandleFunc("/counter", countHandler)
 	http.HandleFunc("/mirror", mirrorHandler)
@@ -27,11 +29,11 @@ func main() {
 }
 
 func getenv(key, fallback string) string {
-    value := os.Getenv(key)
-    if len(value) == 0 {
-        return fallback
-    }
-    return value
+	value := os.Getenv(key)
+	if len(value) == 0 {
+		return fallback
+	}
+	return value
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
