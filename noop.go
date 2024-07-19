@@ -163,7 +163,7 @@ func leakMemory(leak MemLeakStruct, size int, rate int) {
 	newValue := randString(size)
 	leak2 := MemLeakStruct{leak.Timestamp, append(leak.Buffer, newValue)}
 
-	fmt.Println("leaking %v bytes of memory", size)
+	fmt.Printf("leaking %v bytes of memory\n", size)
 	time.Sleep(time.Millisecond * time.Duration(rate))
 	go leakMemory(leak2, size, rate)
 }
