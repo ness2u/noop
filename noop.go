@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -11,6 +12,11 @@ import (
 )
 
 var c int64 = 0
+var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 func main() {
 	port := ":" + getenv("PORT", "8080")
@@ -24,6 +30,7 @@ func main() {
 	http.HandleFunc("/mirror", mirrorHandler)
 	http.HandleFunc("/slow", slowHandler)
 	http.HandleFunc("/status", statusHandler)
+	http.HandleFunc("/memory-leak", leakHandler)
 
 	log.Fatal(http.ListenAndServe(port, nil))
 }
@@ -112,4 +119,59 @@ func addHeaders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Add("x-correlation-id", correlationId)
+}
+
+func leakHandler(w http.ResponseWriter, r *http.Request) {
+	var err error
+	if err = r.ParseForm(); err != nil {
+		panic(err)
+	}
+
+	var rate int
+	if rateValues := r.Form["rate"]; len(rateValues) > 0 {
+		rateValue := rateValues[0]
+		if rate, err = strconv.Atoi(rateValue); err != nil {
+			rate = 1000
+		}
+	} else {
+		rate = 1000
+	}
+
+	var size int
+	if sizeValues := r.Form["size"]; len(sizeValues) > 0 {
+		sizeValue := sizeValues[0]
+		if size, err = strconv.Atoi(sizeValue); err != nil {
+			size = 1000000
+		}
+	} else {
+		size = 1000000
+	}
+
+	addHeaders(w, r)
+	fmt.Fprintf(w, "starting memory leak at %v bytes per %v ms", size, rate)
+
+	leak := MemLeakStruct{time.Now().Unix(), []string{}}
+	go leakMemory(leak, size, rate)
+}
+
+type MemLeakStruct struct {
+	Timestamp int64
+	Buffer    []string
+}
+
+func leakMemory(leak MemLeakStruct, size int, rate int) {
+	newValue := randString(size)
+	leak2 := MemLeakStruct{leak.Timestamp, append(leak.Buffer, newValue)}
+
+	fmt.Println("leaking %v bytes of memory", size)
+	time.Sleep(time.Millisecond * time.Duration(rate))
+	go leakMemory(leak2, size, rate)
+}
+
+func randString(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
 }
