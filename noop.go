@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
@@ -22,15 +23,23 @@ func main() {
 	port := ":" + getenv("PORT", "8080")
 	fmt.Println("a simple no-op http server is running on localhost" + port)
 
+	// no-op
 	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/liveness", rootHandler)
 	http.HandleFunc("/healthcheck", rootHandler)
+
+	// progress!
 	http.HandleFunc("/count", countHandler)
 	http.HandleFunc("/counter", countHandler)
+
+	// request/response
 	http.HandleFunc("/mirror", mirrorHandler)
 	http.HandleFunc("/slow", slowHandler)
 	http.HandleFunc("/status", statusHandler)
+
+	// chaos
 	http.HandleFunc("/memory-leak", leakHandler)
+	http.HandleFunc("/spin-cpu", cpuHandler)
 
 	log.Fatal(http.ListenAndServe(port, nil))
 }
@@ -75,15 +84,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
-	var status int
-	if statusValues := r.Form["code"]; len(statusValues) > 0 {
-		statusValue := statusValues[0]
-		if status, err = strconv.Atoi(statusValue); err != nil {
-			status = http.StatusBadRequest
-		}
-	} else {
-		status = 418 // i'm a teapot
-	}
+	status := readQueryInt(r, "code", 418)
 
 	addHeaders(w, r)
 	w.WriteHeader(status)
@@ -96,15 +97,7 @@ func slowHandler(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
-	var ms int
-	if msValues := r.Form["ms"]; len(msValues) > 0 {
-		msValue := msValues[0]
-		if ms, err = strconv.Atoi(msValue); err != nil {
-			ms = 1000
-		}
-	} else {
-		ms = 1000
-	}
+	ms := readQueryInt(r, "ms", 1000)
 
 	addHeaders(w, r)
 	time.Sleep(time.Millisecond * time.Duration(ms))
@@ -127,25 +120,8 @@ func leakHandler(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
-	var rate int
-	if rateValues := r.Form["rate"]; len(rateValues) > 0 {
-		rateValue := rateValues[0]
-		if rate, err = strconv.Atoi(rateValue); err != nil {
-			rate = 1000
-		}
-	} else {
-		rate = 1000
-	}
-
-	var size int
-	if sizeValues := r.Form["size"]; len(sizeValues) > 0 {
-		sizeValue := sizeValues[0]
-		if size, err = strconv.Atoi(sizeValue); err != nil {
-			size = 1000000
-		}
-	} else {
-		size = 1000000
-	}
+	rate := readQueryInt(r, "rate", 1000)
+	size := readQueryInt(r, "size", 1000000)
 
 	addHeaders(w, r)
 	fmt.Fprintf(w, "starting memory leak at %v bytes per %v ms", size, rate)
@@ -174,4 +150,53 @@ func randString(n int) string {
 		b[i] = letters[rand.Intn(len(letters))]
 	}
 	return string(b)
+}
+
+func cpuHandler(w http.ResponseWriter, r *http.Request) {
+	var err error
+	if err = r.ParseForm(); err != nil {
+		panic(err)
+	}
+
+	count := readQueryInt(r, "count", 1)
+	delay := readQueryInt(r, "delay", 1000)
+	time := readQueryInt(r, "time", 10000)
+
+	fmt.Fprintf(w, "Will spin the cpu with %d routines, for %d ms, in %d ms\n", count, time, delay)
+	fmt.Printf("Will spin the cpu with %d routines, for %d ms, in %d ms\n", count, time, delay)
+	go spinCpu(delay, count, time)
+}
+
+func readQueryInt(r *http.Request, queryArg string, fallback int) int {
+	var err error
+	var result int
+	if queryValues := r.Form[queryArg]; len(queryValues) > 0 {
+		queryValue := queryValues[0]
+		if result, err = strconv.Atoi(queryValue); err != nil {
+			result = fallback
+		}
+	} else {
+		result = fallback
+	}
+	return result
+}
+
+func spinCpu(delayMs int, count int, timeMs int) {
+	time.Sleep(time.Millisecond * time.Duration(delayMs))
+	startTime := time.Now()
+	duration := time.Duration(timeMs) * time.Millisecond
+
+	var counter = 0
+	for i := 0; i < count; i++ {
+		go func() {
+			var a, b big.Int
+			a.SetInt64(rand.Int63())
+			for timeMs <= 0 || time.Since(startTime) < duration {
+				b.SetInt64(rand.Int63())
+				counter = counter + 1
+				a.Mul(&a, &b)
+			}
+			fmt.Printf("done wasting cpu, counter: %d\n", counter)
+		}()
+	}
 }
