@@ -34,12 +34,13 @@ func main() {
 
 	// request/response
 	http.HandleFunc("/mirror", mirrorHandler)
-	http.HandleFunc("/slow", slowHandler)
 	http.HandleFunc("/status", statusHandler)
 
 	// chaos
+	http.HandleFunc("/latency", latencyHandler)
 	http.HandleFunc("/memory-leak", leakHandler)
 	http.HandleFunc("/spin-cpu", cpuHandler)
+	http.HandleFunc("/crash", crashHandler)
 
 	log.Fatal(http.ListenAndServe(port, nil))
 }
@@ -91,7 +92,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "nothing")
 }
 
-func slowHandler(w http.ResponseWriter, r *http.Request) {
+func latencyHandler(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if err = r.ParseForm(); err != nil {
 		panic(err)
@@ -165,6 +166,22 @@ func cpuHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Will spin the cpu with %d routines, for %d ms, in %d ms\n", count, time, delay)
 	fmt.Printf("Will spin the cpu with %d routines, for %d ms, in %d ms\n", count, time, delay)
 	go spinCpu(delay, count, time)
+}
+
+func crashHandler(w http.ResponseWriter, r *http.Request) {
+	var err error
+	if err = r.ParseForm(); err != nil {
+		panic(err)
+	}
+
+	delay := readQueryInt(r, "delay", 10000)
+
+	fmt.Fprintf(w, "Will crash server in %d ms\n", delay)
+	fmt.Printf("Will crash server in %d ms\n", delay)
+	go func() {
+		time.Sleep(time.Millisecond * time.Duration(delay))
+		panic("This server has been intentionally crashed!")
+	}()
 }
 
 func readQueryInt(r *http.Request, queryArg string, fallback int) int {
