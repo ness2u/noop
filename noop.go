@@ -15,10 +15,6 @@ import (
 var c int64 = 0
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
 func main() {
 	port := ":" + getenv("PORT", "8080")
 	fmt.Println("a simple no-op http server is running on localhost" + port)
@@ -37,10 +33,13 @@ func main() {
 	http.HandleFunc("/status", statusHandler)
 
 	// chaos
-	http.HandleFunc("/latency", latencyHandler)
-	http.HandleFunc("/memory-leak", leakHandler)
-	http.HandleFunc("/spin-cpu", cpuHandler)
-	http.HandleFunc("/crash", crashHandler)
+	if getenv("ENABLE_CHAOS", "false") == "true" {
+		fmt.Println("CHAOS MODE ENABLED")
+		http.HandleFunc("/latency", latencyHandler)
+		http.HandleFunc("/memory-leak", leakHandler)
+		http.HandleFunc("/spin-cpu", cpuHandler)
+		http.HandleFunc("/crash", crashHandler)
+	}
 
 	log.Fatal(http.ListenAndServe(port, nil))
 }
