@@ -1,0 +1,35 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: noop-run-
+  namespace: gitlab
+spec:
+  serviceAccountName: tekton-builder
+  pipelineRef:
+    name: noop-pipeline
+  params:
+    - name: branch
+      value: "master"
+  podTemplate:
+    nodeSelector:
+      kubernetes.io/arch: arm64
+    hostAliases:
+      - ip: "100.222.0.7"
+        hostnames:
+        - "ness-linux3.nessh"
+    dnsPolicy: None
+    dnsConfig:
+      nameservers:
+        - 8.8.8.8
+      options:
+        - name: ndots
+          value: "2"
+  workspaces:
+    - name: shared-data
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi

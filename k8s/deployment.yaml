@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: noop-service
+  namespace: ness2u-xyz-live
+  labels:
+    app: noop-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: noop-service
+  template:
+    metadata:
+      labels:
+        app: noop-service
+    spec:
+      nodeSelector:
+        workload.ness2u.xyz/control-plane: "true"
+      containers:
+        - name: noop-service
+          image: ness-linux3.nessh:30500/loch-nessh/noop:master_latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: noop-service
+  namespace: ness2u-xyz-live
+spec:
+  selector:
+    app: noop-service
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: noop-ingress
+  namespace: ness2u-xyz-live
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+    - hosts:
+        - noop.ness2u.xyz
+      secretName: noop-ness2u-xyz-tls
+  rules:
+    - host: noop.ness2u.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: noop-service
+                port:
+                  number: 8080

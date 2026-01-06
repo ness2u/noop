@@ -1,0 +1,92 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: noop-pipeline
+  namespace: gitlab
+spec:
+  params:
+    - name: repo-url
+      type: string
+      default: "ssh://git@github.com/ness2u/noop.git"
+    - name: branch
+      type: string
+      default: "master"
+    - name: image-name
+      type: string
+      default: "ness-linux3.nessh:30500/loch-nessh/noop"
+    - name: dockerfile-path
+      type: string
+      default: "Dockerfile"
+    - name: deploy-name
+      type: string
+      default: "noop-service"
+    - name: deploy-namespace
+      type: string
+      default: "ness2u-xyz-live"
+    - name: platforms
+      type: string
+      default: "linux/amd64,linux/arm64"
+  workspaces:
+    - name: shared-data
+  tasks:
+    - name: fetch-source
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-data
+      params:
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.branch)
+        - name: sslVerify
+          value: "false"
+    - name: check-build-needed
+      runAfter: ["fetch-source"]
+      taskRef:
+        name: check-git-commit
+      params:
+        - name: image
+          value: $(params.image-name):$(params.branch)_latest
+        - name: commit
+          value: $(tasks.fetch-source.results.commit)
+    - name: build-push
+      runAfter: ["check-build-needed"]
+      taskRef:
+        name: buildah-multiarch
+      when:
+        - input: "$(tasks.check-build-needed.results.build-needed)"
+          operator: in
+          values: ["true"]
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: IMAGE
+          value: $(params.image-name):$(params.branch)_latest
+        - name: DOCKERFILE
+          value: $(params.dockerfile-path)
+        - name: TLSVERIFY
+          value: "false"
+        - name: FORMAT
+          value: "docker"
+        - name: PLATFORMS
+          value: $(params.platforms)
+        - name: BUILD_EXTRA_ARGS
+          value: --label=git-commit=$(tasks.fetch-source.results.commit)
+    - name: rollout-restart
+      runAfter: ["build-push"]
+      taskRef:
+        name: kubectl-run
+      when:
+        - input: "$(params.deploy-name)"
+          operator: notin
+          values: [""]
+        - input: "$(tasks.check-build-needed.results.build-needed)"
+          operator: in
+          values: ["true"]
+      params:
+        - name: script
+          value: |
+            kubectl rollout restart deployment/$(params.deploy-name) -n $(params.deploy-namespace)
