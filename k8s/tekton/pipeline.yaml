@@ -13,7 +13,7 @@ spec:
       default: "master"
     - name: image-name
       type: string
-      default: "ness-linux3.nessh:30500/loch-nessh/noop"
+      default: "registry.gitlab.svc.cluster.local:5000/loch-nessh/noop"
     - name: dockerfile-path
       type: string
       default: "Dockerfile"
