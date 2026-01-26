@@ -2,19 +2,43 @@
 package main
 
 import (
+	"context"
+	crand "crypto/rand"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"math/rand"
+	mrand "math/rand"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 var c int64 = 0
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+// per-connection throughput state
+var (
+	connStates sync.Map             // key: net.Conn, value: *ConnThroughputState
+	defaultBps int64    = 1_000_000 // 1 Mbps by default
+)
+
+type ConnThroughputState struct {
+	TargetBps int64
+	Last      time.Time
+	Tokens    float64
+	Total     int64
+	Mu        sync.Mutex
+}
+
+type ctxKey string
+
+const connCtxKey ctxKey = "conn"
 
 func main() {
 	port := ":" + getenv("PORT", "8080")
@@ -33,6 +57,10 @@ func main() {
 	http.HandleFunc("/mirror", mirrorHandler)
 	http.HandleFunc("/status", statusHandler)
 
+	// data
+	http.HandleFunc("/download", downloadHandler)
+	http.HandleFunc("/throughput", throughputHandler)
+
 	// chaos
 	if getenv("ENABLE_CHAOS", "false") == "true" {
 		fmt.Println("CHAOS MODE ENABLED")
@@ -42,7 +70,24 @@ func main() {
 		http.HandleFunc("/crash", crashHandler)
 	}
 
-	log.Fatal(http.ListenAndServe(port, nil))
+	server := &http.Server{
+		Addr:    port,
+		Handler: nil,
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			// initialize per-connection state if not present
+			if _, ok := connStates.Load(c); !ok {
+				connStates.Store(c, &ConnThroughputState{TargetBps: defaultBps, Last: time.Now()})
+			}
+			return context.WithValue(ctx, connCtxKey, c)
+		},
+		ConnState: func(c net.Conn, state http.ConnState) {
+			if state == http.StateClosed {
+				connStates.Delete(c)
+			}
+		},
+	}
+
+	log.Fatal(server.ListenAndServe())
 }
 
 func getenv(key, fallback string) string {
@@ -148,9 +193,132 @@ func leakMemory(leak MemLeakStruct, size int, rate int) {
 func randString(n int) string {
 	b := make([]rune, n)
 	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
+		b[i] = letters[mrand.Intn(len(letters))]
 	}
 	return string(b)
+}
+
+// downloadHandler streams random bytes of the requested size
+func downloadHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		panic(err)
+	}
+	addHeaders(w, r)
+	size := readQueryInt(r, "size", 1024*1024)
+	if size < 0 {
+		size = 0
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(size))
+	_, _ = io.CopyN(w, crand.Reader, int64(size))
+}
+
+func getConnFromCtx(ctx context.Context) (net.Conn, bool) {
+	c, ok := ctx.Value(connCtxKey).(net.Conn)
+	return c, ok
+}
+
+func getConnState(c net.Conn) *ConnThroughputState {
+	if v, ok := connStates.Load(c); ok {
+		if s, ok2 := v.(*ConnThroughputState); ok2 {
+			return s
+		}
+	}
+	s := &ConnThroughputState{TargetBps: defaultBps, Last: time.Now()}
+	connStates.Store(c, s)
+	return s
+}
+
+// throughputHandler streams bytes paced to a per-connection target Bps
+// Query:
+// - bps: desired bytes-per-second (optional; updates connection state)
+// - size: bytes to send this request (default 1MiB)
+func throughputHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		panic(err)
+	}
+	addHeaders(w, r)
+
+	conn, ok := getConnFromCtx(r.Context())
+	if !ok {
+		// Fallback: treat as stateless if conn not available
+		downloadHandler(w, r)
+		return
+	}
+
+	s := getConnState(conn)
+
+	// Optional update of target bps
+	if vals, ok := r.Form["bps"]; ok && len(vals) > 0 {
+		if b, err := strconv.ParseInt(vals[0], 10, 64); err == nil && b > 0 {
+			s.Mu.Lock()
+			s.TargetBps = b
+			s.Mu.Unlock()
+		}
+	}
+
+	size := readQueryInt(r, "size", 1024*1024)
+	if size < 0 {
+		size = 0
+	}
+	remaining := int64(size)
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(remaining, 10))
+
+	flusher, _ := w.(http.Flusher)
+
+	const maxChunk = 32 * 1024 // 32KiB granularity
+
+	for remaining > 0 {
+		// compute available tokens
+		s.Mu.Lock()
+		now := time.Now()
+		dt := now.Sub(s.Last).Seconds()
+		if dt < 0 {
+			dt = 0
+		}
+		s.Tokens += dt * float64(s.TargetBps)
+		// Cap token bucket to 2 seconds of data to avoid unlimited bursts
+		capTokens := float64(2 * s.TargetBps)
+		if s.Tokens > capTokens {
+			s.Tokens = capTokens
+		}
+		s.Last = now
+		available := int64(s.Tokens)
+		s.Mu.Unlock()
+
+		if available <= 0 {
+			// sleep briefly to accumulate tokens
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+
+		toSend := available
+		if toSend > remaining {
+			toSend = remaining
+		}
+		if toSend > maxChunk {
+			toSend = maxChunk
+		}
+
+		// send toSend bytes
+		if _, err := io.CopyN(w, crand.Reader, toSend); err != nil {
+			// client likely closed connection
+			return
+		}
+
+		// decrement tokens
+		s.Mu.Lock()
+		s.Tokens -= float64(toSend)
+		s.Total += toSend
+		s.Mu.Unlock()
+
+		remaining -= toSend
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
 }
 
 func cpuHandler(w http.ResponseWriter, r *http.Request) {
