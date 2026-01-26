@@ -12,3 +12,11 @@
 
 # Project-local glide cache, RE: https://github.com/Masterminds/glide/issues/736
 .glide/
+
+# Local artifacts
+noop
+dummybuild
+demo-*
+*.deployment.yaml
+*.noop.deployment.yaml
+*.yaml.bak
