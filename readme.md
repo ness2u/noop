@@ -25,6 +25,8 @@ podman run --rm -ti -p 8080:8080 -e ENABLE_CHAOS=true noop:latest
 - `/count` counts... so does `/counter`
 - `/mirror` shows request headers in the response.
 - `/status?code=<code>` to control response status code.
+- `/download?size=<bytes>` streams text bytes (ASCII lorem pattern) with exact length.
+- `/throughput?bps=<bytes-per-second>&size=<bytes>` streams ASCII text paced to a per-connection target Bps; repeated calls on the same TCP connection update the target Bps.
 
 ### chaos (enabled via `ENABLE_CHAOS=true`)
 - `/latency?ms=<latency-ms>` to induce a slow response.

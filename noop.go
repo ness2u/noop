@@ -3,13 +3,11 @@ package main
 
 import (
 	"context"
-	crand "crypto/rand"
 	"fmt"
 	"io"
 	"log"
 	"math/big"
-	"math/rand"
-	mrand "math/rand"
+	rand "math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +19,38 @@ import (
 
 var c int64 = 0
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+// pattern for ASCII output
+var asciiPattern = []byte("Lorem ipsum dolor sit amet, consectetur adipiscing elit. 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\n")
+
+type patternReader struct {
+	pat    []byte
+	off    int
+	remain int64
+}
+
+func newPatternReader(n int64) *patternReader {
+	return &patternReader{pat: asciiPattern, off: 0, remain: n}
+}
+
+func (p *patternReader) Read(b []byte) (int, error) {
+	if p.remain <= 0 {
+		return 0, io.EOF
+	}
+	n := len(b)
+	if int64(n) > p.remain {
+		n = int(p.remain)
+	}
+	for i := 0; i < n; i++ {
+		b[i] = p.pat[p.off]
+		p.off++
+		if p.off >= len(p.pat) {
+			p.off = 0
+		}
+	}
+	p.remain -= int64(n)
+	return n, nil
+}
 
 // per-connection throughput state
 var (
@@ -193,12 +223,12 @@ func leakMemory(leak MemLeakStruct, size int, rate int) {
 func randString(n int) string {
 	b := make([]rune, n)
 	for i := range b {
-		b[i] = letters[mrand.Intn(len(letters))]
+		b[i] = letters[rand.Intn(len(letters))]
 	}
 	return string(b)
 }
 
-// downloadHandler streams random bytes of the requested size
+// downloadHandler streams text bytes of the requested size
 func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		panic(err)
@@ -208,9 +238,9 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	if size < 0 {
 		size = 0
 	}
-	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(size))
-	_, _ = io.CopyN(w, crand.Reader, int64(size))
+	_, _ = io.CopyN(w, newPatternReader(int64(size)), int64(size))
 }
 
 func getConnFromCtx(ctx context.Context) (net.Conn, bool) {
@@ -263,7 +293,7 @@ func throughputHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	remaining := int64(size)
 
-	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.FormatInt(remaining, 10))
 
 	flusher, _ := w.(http.Flusher)
@@ -302,8 +332,8 @@ func throughputHandler(w http.ResponseWriter, r *http.Request) {
 			toSend = maxChunk
 		}
 
-		// send toSend bytes
-		if _, err := io.CopyN(w, crand.Reader, toSend); err != nil {
+		// send toSend bytes (ASCII pattern)
+		if _, err := io.CopyN(w, newPatternReader(toSend), toSend); err != nil {
 			// client likely closed connection
 			return
 		}
