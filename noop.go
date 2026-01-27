@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"math/big"
 	rand "math/rand"
@@ -23,33 +22,27 @@ var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 // pattern for ASCII output
 var asciiPattern = []byte("Lorem ipsum dolor sit amet, consectetur adipiscing elit. 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\n")
 
-type patternReader struct {
-	pat    []byte
-	off    int
-	remain int64
-}
-
-func newPatternReader(n int64) *patternReader {
-	return &patternReader{pat: asciiPattern, off: 0, remain: n}
-}
-
-func (p *patternReader) Read(b []byte) (int, error) {
-	if p.remain <= 0 {
-		return 0, io.EOF
+func writePatternN(w http.ResponseWriter, n int64) error {
+	if n <= 0 {
+		return nil
 	}
-	n := len(b)
-	if int64(n) > p.remain {
-		n = int(p.remain)
-	}
-	for i := 0; i < n; i++ {
-		b[i] = p.pat[p.off]
-		p.off++
-		if p.off >= len(p.pat) {
-			p.off = 0
+	remaining := n
+	off := 0
+	for remaining > 0 {
+		chunk := int64(len(asciiPattern) - off)
+		if chunk > remaining {
+			chunk = remaining
+		}
+		if _, err := w.Write(asciiPattern[off : off+int(chunk)]); err != nil {
+			return err
+		}
+		remaining -= chunk
+		off += int(chunk)
+		if off >= len(asciiPattern) {
+			off = 0
 		}
 	}
-	p.remain -= int64(n)
-	return n, nil
+	return nil
 }
 
 // per-connection throughput state
@@ -63,7 +56,74 @@ type ConnThroughputState struct {
 	Last      time.Time
 	Tokens    float64
 	Total     int64
-	Mu        sync.Mutex
+
+	// rolling history of recent request payloads
+	hist       []reqSample
+	maxSamples int
+	windowMax  time.Duration
+
+	Mu sync.Mutex
+}
+
+type reqSample struct {
+	T time.Time
+	N int64
+}
+
+func (s *ConnThroughputState) pruneHistory(now time.Time) {
+	cut := now.Add(-s.windowMax)
+	// drop old entries at front
+	i := 0
+	for i < len(s.hist) && s.hist[i].T.Before(cut) {
+		i++
+	}
+	if i > 0 {
+		s.hist = append([]reqSample(nil), s.hist[i:]...)
+	}
+	if len(s.hist) > s.maxSamples {
+		s.hist = append([]reqSample(nil), s.hist[len(s.hist)-s.maxSamples:]...)
+	}
+}
+
+func (s *ConnThroughputState) addSample(n int64) {
+	now := time.Now()
+	s.pruneHistory(now)
+	s.hist = append(s.hist, reqSample{T: now, N: n})
+}
+
+func (s *ConnThroughputState) effectiveBps() float64 {
+	now := time.Now()
+	s.pruneHistory(now)
+	if len(s.hist) == 0 {
+		return 0
+	}
+	var total int64
+	oldest := s.hist[0].T
+	for _, h := range s.hist {
+		total += h.N
+		if h.T.Before(oldest) {
+			oldest = h.T
+		}
+	}
+	dur := now.Sub(oldest).Seconds()
+	if dur <= 0 {
+		dur = 0.001
+	}
+	return float64(total) / dur
+}
+
+func (s *ConnThroughputState) bucketFill(now time.Time) {
+	dt := now.Sub(s.Last).Seconds()
+	if dt < 0 {
+		dt = 0
+	}
+	s.Tokens += dt * float64(s.TargetBps)
+	// cap to 1 second worth to smooth bursts
+	capTokens := float64(s.TargetBps) * 1.0
+	if s.Tokens > capTokens {
+		s.Tokens = capTokens
+	}
+	s.Last = now
 }
 
 type ctxKey string
@@ -106,7 +166,15 @@ func main() {
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			// initialize per-connection state if not present
 			if _, ok := connStates.Load(c); !ok {
-				connStates.Store(c, &ConnThroughputState{TargetBps: defaultBps, Last: time.Now()})
+				connStates.Store(c, &ConnThroughputState{
+					TargetBps:  defaultBps,
+					Last:       time.Now(),
+					Tokens:     0,
+					Total:      0,
+					hist:       make([]reqSample, 0, 10),
+					maxSamples: 10,
+					windowMax:  10 * time.Second,
+				})
 			}
 			return context.WithValue(ctx, connCtxKey, c)
 		},
@@ -240,7 +308,7 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(size))
-	_, _ = io.CopyN(w, newPatternReader(int64(size)), int64(size))
+	_ = writePatternN(w, int64(size))
 }
 
 func getConnFromCtx(ctx context.Context) (net.Conn, bool) {
@@ -301,25 +369,12 @@ func throughputHandler(w http.ResponseWriter, r *http.Request) {
 	const maxChunk = 32 * 1024 // 32KiB granularity
 
 	for remaining > 0 {
-		// compute available tokens
 		s.Mu.Lock()
-		now := time.Now()
-		dt := now.Sub(s.Last).Seconds()
-		if dt < 0 {
-			dt = 0
-		}
-		s.Tokens += dt * float64(s.TargetBps)
-		// Cap token bucket to 2 seconds of data to avoid unlimited bursts
-		capTokens := float64(2 * s.TargetBps)
-		if s.Tokens > capTokens {
-			s.Tokens = capTokens
-		}
-		s.Last = now
+		s.bucketFill(time.Now())
 		available := int64(s.Tokens)
 		s.Mu.Unlock()
 
 		if available <= 0 {
-			// sleep briefly to accumulate tokens
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
@@ -332,13 +387,10 @@ func throughputHandler(w http.ResponseWriter, r *http.Request) {
 			toSend = maxChunk
 		}
 
-		// send toSend bytes (ASCII pattern)
-		if _, err := io.CopyN(w, newPatternReader(toSend), toSend); err != nil {
-			// client likely closed connection
+		if err := writePatternN(w, toSend); err != nil {
 			return
 		}
 
-		// decrement tokens
 		s.Mu.Lock()
 		s.Tokens -= float64(toSend)
 		s.Total += toSend
@@ -349,6 +401,11 @@ func throughputHandler(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+
+	// record sample for this request
+	s.Mu.Lock()
+	s.addSample(int64(size))
+	s.Mu.Unlock()
 }
 
 func cpuHandler(w http.ResponseWriter, r *http.Request) {
