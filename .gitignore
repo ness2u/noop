@@ -20,3 +20,4 @@ demo-*
 *.deployment.yaml
 *.noop.deployment.yaml
 *.yaml.bak
+.mimir/
