@@ -138,6 +138,7 @@ func main() {
 	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/liveness", rootHandler)
 	http.HandleFunc("/healthcheck", rootHandler)
+	http.HandleFunc("/healthz", healthzHandler)
 
 	// progress!
 	http.HandleFunc("/count", countHandler)
@@ -199,6 +200,12 @@ func getenv(key, fallback string) string {
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	addHeaders(w, r)
 	fmt.Fprint(w, "nothing")
+}
+
+func healthzHandler(w http.ResponseWriter, r *http.Request) {
+	addHeaders(w, r)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, "OK")
 }
 
 func countHandler(w http.ResponseWriter, r *http.Request) {

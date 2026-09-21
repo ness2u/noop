@@ -1,3 +1,6 @@
+## 2026-09-03 — ipsa loop runs
+- [x] add a /healthz endpoint (ipsa sdlc run 20260903T173148Z-3c853c11)
+
 # Projects Noop TODOs
 
 - [x] **Update Node Selection:** Switched `pipelinerun.yaml` to use the `workload.ness2u.xyz/gitlab-runner: "true"` label.

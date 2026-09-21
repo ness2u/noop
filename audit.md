@@ -1,3 +1,6 @@
+## 2026-09-03 — ipsa loop runs
+- sdlc: add a /healthz endpoint — settled (2 step(s), validate green)
+
 # Audit — noop
 
 ## 2026-08-17: SOP Sync (ledger-wide audit)
