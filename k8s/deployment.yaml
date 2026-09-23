@@ -14,18 +14,42 @@ spec:
     metadata:
       labels:
         app: noop-service
+      annotations:
+        # The estate's collector scrapes pods by these annotations (otel-collector-config,
+        # namespace monitoring); /metrics is noop's own exposition (observe.go).
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       nodeSelector:
         workload.ness2u.xyz/control-plane: "true"
       containers:
         - name: noop-service
-          image: ness-linux3.nessh:30500/loch-nessh/noop:master_latest
+          # registry.nessh:30500 is the estate's stable registry name (one registry, on
+          # ness-server2 since 2026-09-08; the linux3 names are containerd mirror aliases
+          # only — todo.md, answered 2026-09-22). The tag is still a floating one: the
+          # gate's release-candidate tag replaces it when lane 1 lands it.
+          image: registry.nessh:30500/loch-nessh/noop:master_latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
+              name: http
           env:
             - name: PORT
               value: "8080"
+            - name: LOG_LEVEL
+              value: "info"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
           resources:
             limits:
               cpu: "500m"

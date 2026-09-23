@@ -5,7 +5,14 @@
 
 - [x] **Update Node Selection:** Switched `pipelinerun.yaml` to use the `workload.ness2u.xyz/gitlab-runner: "true"` label.
 - [x] **Internal Build Path:** Updated `pipeline.yaml` to push via the internal cluster service (`registry.gitlab.svc.cluster.local:5000`).
-- [ ] **Unified Registry Manifests:** Currently, `deployment.yaml` must use `ness-linux3.nessh:30500` for `containerd` pull compatibility. Unify this to a single `registry.local` endpoint once the infrastructure DNS/Gateway is finalized.
+- [x] **Unified Registry Manifests** — DONE 2026-09-22: `k8s/deployment.yaml` pulls from
+  `registry.nessh:30500` (the stable name; cloud4, the only node noop schedules on, carries the
+  mirror entry and the `/etc/hosts` record — verified by ansible-root-04). The Tekton push name
+  stays `registry.gitlab.svc.cluster.local:5000` (in-cluster, either works). Retiring the 17
+  legacy aliases from `registries.yaml` is a fleet change and ness's. Was: "Currently,
+  `deployment.yaml` must use `ness-linux3.nessh:30500` for `containerd` pull compatibility.
+  Unify this to a single `registry.local` endpoint once the infrastructure DNS/Gateway is
+  finalized."
 
   > [!NOTE]
   > **Answered 2026-09-22 by `ansible-root-04`, verified from the nodes and the live cluster — the
@@ -46,3 +53,20 @@
   > **What is left of this item** is therefore not "unify once DNS/Gateway is finalised" — the
   > stable name already exists and 46 refs use it. It is a one-line change here plus a decision
   > about whether the 17 legacy aliases are ever retired from `registries.yaml`. **Not made here.**
+
+## 2026-09-22 — the demo target (ipsa-sre lane, week of 09-22)
+- [x] Structured request logging (`observe.go`, JSON on stdout, `LOG_LEVEL`).
+- [x] `/metrics` (Prometheus exposition, stdlib) incl. one series per chaos injection; `/version`;
+  scrape annotations + probes in `k8s/deployment.yaml`; `Dockerfile` copies every `.go` and
+  stamps `VERSION`.
+- [ ] **The test suite — deliberately after lane 1's first gate refusal.** noop has zero tests
+  today and the commit-gate pilot (ipsa-sdlc lane) needs that for its first real red. When the
+  refusal is demonstrated, the tests land as the fix: `newMux()` on an `httptest.Server`, every
+  endpoint's status and body, the middleware's status/bytes capture, `/metrics` parses and
+  carries `noop_http_requests_total` after a request, `/count` under `-race`, and a panic in a
+  handler yields a logged 500 rather than a dropped connection.
+- [ ] Build and push a stamped image (`--build-arg VERSION=<stamp>`, tag = stamp, never
+  `master_latest`) and roll it: through lane 1's gate and RC tag once they exist; until then the
+  Tekton pipeline still pushes `master_latest`, which the deployment still pulls.
+- [ ] A regula `k8s` row for this repo once the kubectl pack exists: probes present (now true),
+  no floating tag (still false), scrape annotations present.

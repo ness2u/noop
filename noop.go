@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/big"
 	rand "math/rand"
 	"net"
@@ -13,10 +12,17 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-var c int64 = 0
+// c is the /count counter. Atomic: it was a plain int64 written from every
+// request goroutine, which the race detector flags and a load test corrupts.
+var c atomic.Int64
+
+// chaosEnabled is ENABLE_CHAOS=true: the chaos endpoints are registered and
+// noop_chaos_enabled reads 1.
+var chaosEnabled bool
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 // pattern for ASCII output
@@ -130,40 +136,51 @@ type ctxKey string
 
 const connCtxKey ctxKey = "conn"
 
-func main() {
-	port := ":" + getenv("PORT", "8080")
-	fmt.Println("a simple no-op http server is running on localhost" + port)
+// newMux registers every endpoint. Separate from main so a test can serve
+// the same routes on an httptest server.
+func newMux() *http.ServeMux {
+	mux := http.NewServeMux()
 
 	// no-op
-	http.HandleFunc("/", rootHandler)
-	http.HandleFunc("/liveness", rootHandler)
-	http.HandleFunc("/healthcheck", rootHandler)
-	http.HandleFunc("/healthz", healthzHandler)
+	mux.HandleFunc("/", rootHandler)
+	mux.HandleFunc("/liveness", rootHandler)
+	mux.HandleFunc("/healthcheck", rootHandler)
+	mux.HandleFunc("/healthz", healthzHandler)
+
+	// about itself
+	mux.HandleFunc("/metrics", metricsHandler)
+	mux.HandleFunc("/version", versionHandler)
 
 	// progress!
-	http.HandleFunc("/count", countHandler)
-	http.HandleFunc("/counter", countHandler)
+	mux.HandleFunc("/count", countHandler)
+	mux.HandleFunc("/counter", countHandler)
 
 	// request/response
-	http.HandleFunc("/mirror", mirrorHandler)
-	http.HandleFunc("/status", statusHandler)
+	mux.HandleFunc("/mirror", mirrorHandler)
+	mux.HandleFunc("/status", statusHandler)
 
 	// data
-	http.HandleFunc("/download", downloadHandler)
-	http.HandleFunc("/throughput", throughputHandler)
+	mux.HandleFunc("/download", downloadHandler)
+	mux.HandleFunc("/throughput", throughputHandler)
 
 	// chaos
-	if getenv("ENABLE_CHAOS", "false") == "true" {
-		fmt.Println("CHAOS MODE ENABLED")
-		http.HandleFunc("/latency", latencyHandler)
-		http.HandleFunc("/memory-leak", leakHandler)
-		http.HandleFunc("/spin-cpu", cpuHandler)
-		http.HandleFunc("/crash", crashHandler)
+	if chaosEnabled {
+		mux.HandleFunc("/latency", latencyHandler)
+		mux.HandleFunc("/memory-leak", leakHandler)
+		mux.HandleFunc("/spin-cpu", cpuHandler)
+		mux.HandleFunc("/crash", crashHandler)
 	}
+	return mux
+}
+
+func main() {
+	port := ":" + getenv("PORT", "8080")
+	chaosEnabled = getenv("ENABLE_CHAOS", "false") == "true"
+	logger.Info("noop starting", "addr", port, "version", version, "chaos", chaosEnabled, "log_level", getenv("LOG_LEVEL", "info"))
 
 	server := &http.Server{
 		Addr:    port,
-		Handler: nil,
+		Handler: observe(newMux()),
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			// initialize per-connection state if not present
 			if _, ok := connStates.Load(c); !ok {
@@ -186,7 +203,10 @@ func main() {
 		},
 	}
 
-	log.Fatal(server.ListenAndServe())
+	if err := server.ListenAndServe(); err != nil {
+		logger.Error("noop stopped", "err", err.Error())
+		os.Exit(1)
+	}
 }
 
 func getenv(key, fallback string) string {
@@ -210,14 +230,13 @@ func healthzHandler(w http.ResponseWriter, r *http.Request) {
 
 func countHandler(w http.ResponseWriter, r *http.Request) {
 	addHeaders(w, r)
-	c = c + 1
-	fmt.Fprintf(w, "%d", c)
+	fmt.Fprintf(w, "%d", c.Add(1))
 }
 
 func mirrorHandler(w http.ResponseWriter, r *http.Request) {
 	addHeaders(w, r)
 
-	fmt.Printf("make peace with the mirror, and watch yourself change\n")
+	logger.Debug("make peace with the mirror, and watch yourself change")
 	fmt.Fprintf(w, "%s %s\n", r.Method, r.URL)
 
 	for header, values := range r.Header {
@@ -249,20 +268,24 @@ func latencyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ms := readQueryInt(r, "ms", 1000)
+	if ms < 0 {
+		ms = 0
+	}
 
 	addHeaders(w, r)
+	logger.Info("chaos: latency", "ms", ms)
 	time.Sleep(time.Millisecond * time.Duration(ms))
+	metrics.latencyInduced.Add(uint64(ms))
 	fmt.Fprintf(w, "a slow response - %v ms", ms)
 }
 
+// addHeaders is kept for the handlers that call it; the correlation id is
+// now set once for every request by the observe middleware, so this only
+// guarantees the header exists for a handler served without it.
 func addHeaders(w http.ResponseWriter, r *http.Request) {
-
-	correlationId := r.Header.Get("x-correlationId")
-	if len(correlationId) == 0 {
-		correlationId = fmt.Sprintf("cid_%v", time.Now().Unix())
+	if w.Header().Get("x-correlation-id") == "" {
+		w.Header().Set("x-correlation-id", correlationID(r))
 	}
-
-	w.Header().Add("x-correlation-id", correlationId)
 }
 
 func leakHandler(w http.ResponseWriter, r *http.Request) {
@@ -275,9 +298,11 @@ func leakHandler(w http.ResponseWriter, r *http.Request) {
 	size := readQueryInt(r, "size", 1000000)
 
 	addHeaders(w, r)
+	logger.Warn("chaos: memory leak started", "bytes_per_leak", size, "ms_between_leaks", rate)
 	fmt.Fprintf(w, "starting memory leak at %v bytes per %v ms", size, rate)
 
 	leak := MemLeakStruct{time.Now().Unix(), []string{}}
+	metrics.leakActive.Add(1)
 	go leakMemory(leak, size, rate)
 }
 
@@ -290,7 +315,8 @@ func leakMemory(leak MemLeakStruct, size int, rate int) {
 	newValue := randString(size)
 	leak2 := MemLeakStruct{leak.Timestamp, append(leak.Buffer, newValue)}
 
-	fmt.Printf("leaking %v bytes of memory\n", size)
+	metrics.leakBytes.Add(uint64(size))
+	logger.Debug("chaos: leaking", "bytes", size, "held", len(leak2.Buffer))
 	time.Sleep(time.Millisecond * time.Duration(rate))
 	go leakMemory(leak2, size, rate)
 }
@@ -426,7 +452,7 @@ func cpuHandler(w http.ResponseWriter, r *http.Request) {
 	time := readQueryInt(r, "time", 10000)
 
 	fmt.Fprintf(w, "Will spin the cpu with %d routines, for %d ms, in %d ms\n", count, time, delay)
-	fmt.Printf("Will spin the cpu with %d routines, for %d ms, in %d ms\n", count, time, delay)
+	logger.Warn("chaos: cpu spin scheduled", "routines", count, "for_ms", time, "in_ms", delay)
 	go spinCpu(delay, count, time)
 }
 
@@ -439,9 +465,11 @@ func crashHandler(w http.ResponseWriter, r *http.Request) {
 	delay := readQueryInt(r, "delay", 10000)
 
 	fmt.Fprintf(w, "Will crash server in %d ms\n", delay)
-	fmt.Printf("Will crash server in %d ms\n", delay)
+	logger.Warn("chaos: crash armed", "in_ms", delay)
+	metrics.crashArmed.Store(1)
 	go func() {
 		time.Sleep(time.Millisecond * time.Duration(delay))
+		logger.Error("chaos: crashing now", "armed_ms", delay)
 		panic("This server has been intentionally crashed!")
 	}()
 }
@@ -465,17 +493,19 @@ func spinCpu(delayMs int, count int, timeMs int) {
 	startTime := time.Now()
 	duration := time.Duration(timeMs) * time.Millisecond
 
-	var counter = 0
+	var counter atomic.Int64
 	for i := 0; i < count; i++ {
+		metrics.spinActive.Add(1)
 		go func() {
+			defer metrics.spinActive.Add(-1)
 			var a, b big.Int
 			a.SetInt64(rand.Int63())
 			for timeMs <= 0 || time.Since(startTime) < duration {
 				b.SetInt64(rand.Int63())
-				counter = counter + 1
+				counter.Add(1)
 				a.Mul(&a, &b)
 			}
-			fmt.Printf("done wasting cpu, counter: %d\n", counter)
+			logger.Info("chaos: cpu spinner done", "counter", counter.Load())
 		}()
 	}
 }
