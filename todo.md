@@ -59,7 +59,7 @@
 - [x] `/metrics` (Prometheus exposition, stdlib) incl. one series per chaos injection; `/version`;
   scrape annotations + probes in `k8s/deployment.yaml`; `Dockerfile` copies every `.go` and
   stamps `VERSION`.
-- [ ] **The test suite — deliberately after lane 1's first gate refusal.** noop has zero tests
+- [x] **The test suite — landed after lane 1's first gate refusal** (DONE 2026-09-23 ~01:40Z: `ipsa gate .` REFUSED `no_gate` at 99f0c23 on a clean tree, lane 1; then `Makefile` `check: build test` — `go vet` + build, `go test -race -v` — and `noop_test.go`, nine tests over the real routes behind the real middleware on an httptest server with the same per-connection pacing a pod has). Was: deliberately after lane 1's first gate refusal. noop has zero tests
   today and the commit-gate pilot (ipsa-sdlc lane) needs that for its first real red. When the
   refusal is demonstrated, the tests land as the fix: `newMux()` on an `httptest.Server`, every
   endpoint's status and body, the middleware's status/bytes capture, `/metrics` parses and

@@ -178,34 +178,37 @@ func main() {
 	chaosEnabled = getenv("ENABLE_CHAOS", "false") == "true"
 	logger.Info("noop starting", "addr", port, "version", version, "chaos", chaosEnabled, "log_level", getenv("LOG_LEVEL", "info"))
 
-	server := &http.Server{
-		Addr:    port,
-		Handler: observe(newMux()),
-		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			// initialize per-connection state if not present
-			if _, ok := connStates.Load(c); !ok {
-				connStates.Store(c, &ConnThroughputState{
-					TargetBps:  defaultBps,
-					Last:       time.Now(),
-					Tokens:     0,
-					Total:      0,
-					hist:       make([]reqSample, 0, 10),
-					maxSamples: 10,
-					windowMax:  10 * time.Second,
-				})
-			}
-			return context.WithValue(ctx, connCtxKey, c)
-		},
-		ConnState: func(c net.Conn, state http.ConnState) {
-			if state == http.StateClosed {
-				connStates.Delete(c)
-			}
-		},
-	}
+	server := &http.Server{Addr: port, Handler: observe(newMux())}
+	trackConnections(server)
 
 	if err := server.ListenAndServe(); err != nil {
 		logger.Error("noop stopped", "err", err.Error())
 		os.Exit(1)
+	}
+}
+
+// trackConnections gives /throughput its per-connection pacing state: the
+// conn rides the request context, and its state is dropped when it closes.
+// Shared by main and the test server, so a test paces the way a pod does.
+func trackConnections(server *http.Server) {
+	server.ConnContext = func(ctx context.Context, c net.Conn) context.Context {
+		if _, ok := connStates.Load(c); !ok {
+			connStates.Store(c, &ConnThroughputState{
+				TargetBps:  defaultBps,
+				Last:       time.Now(),
+				Tokens:     0,
+				Total:      0,
+				hist:       make([]reqSample, 0, 10),
+				maxSamples: 10,
+				windowMax:  10 * time.Second,
+			})
+		}
+		return context.WithValue(ctx, connCtxKey, c)
+	}
+	server.ConnState = func(c net.Conn, state http.ConnState) {
+		if state == http.StateClosed {
+			connStates.Delete(c)
+		}
 	}
 }
 

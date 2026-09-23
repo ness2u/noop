@@ -1,3 +1,17 @@
+## 2026-09-23 — the gate's first customer: a Makefile the gate reads, and the tests as the fix
+- Lane 1 demonstrated the commit-gate's first real refusal on this repo at 99f0c23 (`ipsa gate .` →
+  REFUSED `no_gate`, nothing written, the refusal printing the Makefile to declare). This commit is the fix
+  that turns it green: `Makefile` with `check: build test` (`go vet ./...` + `go build`, then `go test
+  -race -v ./...`), a `run` target with chaos on, and an `image` target that stamps `VERSION` and never
+  tags `:latest`. `noop_test.go`: nine tests over `newMux()` behind `observe()` on an httptest server that
+  carries the same per-connection pacing as a pod (`trackConnections`, extracted from `main` for exactly
+  that) — every endpoint's status and body, the correlation id echoed in both spellings or minted once
+  per request, `/count` under 200 concurrent requests with `-race`, exact byte counts and pacing on
+  download/throughput, `/mirror` hiding the authorization header, `/metrics` carrying the per-path series
+  and the chaos series and parsing line by line, `/version` as JSON with the stamp, a handler panic as a
+  logged and counted 500, and the chaos routes absent when chaos is off (the root route is a catch-all,
+  so an unregistered `/latency` answers `nothing`, never a slow response).
+
 ## 2026-09-22 — observability for the demo (the ipsa-sre lane, week of 09-22)
 - `observe.go`: one JSON log line per request (`log/slog`, stdout; `cid`, method, path, query,
   status, bytes, `duration_ms`, remote, user agent), a recovered handler panic logged as a 500
