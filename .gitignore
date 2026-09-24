@@ -21,3 +21,6 @@ demo-*
 *.noop.deployment.yaml
 *.yaml.bak
 .mimir/
+
+# the image stamp the gate reads (make image writes it, make publish reads it)
+target/
