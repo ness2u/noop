@@ -1,3 +1,8 @@
+## `[ ]` Push two local tags in the TPM's batch after 18:00 PT (2026-09-25), by name — do not push them from a lane
+
+- `local-validated/noop/8081305`
+- `release-candidate/noop/8081305` → `registry.nessh:30500/loch-nessh/noop:2026.268.213753` (minted by `ipsa gate --rc` from a detached worktree at 8081305, 2026-09-25 21:37Z; record `.ipsa/runs/20260925T213751Z` in that worktree). Not rolled: the roll goes through the sre-agent (sequence depth 3), not by hand.
+
 ## 2026-09-03 — ipsa loop runs
 - [x] add a /healthz endpoint (ipsa sdlc run 20260903T173148Z-3c853c11)
 
