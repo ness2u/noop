@@ -1,3 +1,5 @@
+## 2026-09-26 — a `watch` target (ipsa-agent-4b, lanes 1+2): since ipsa e103d3c0 a deploy with no watch counters is refused before anything runs, so this is what lets noop roll. Two counters in shtoned 50e51c02's shape, each able to say `unreadable`: `healthz_failing` (/healthz non-200 over 3 reads of the Service's live ClusterIP; `NOOP_URL` overrides) and `restarts` (pods running the image being deployed, `$IPSA_IMAGE`, compared without the registry host, so `ness-linux3.nessh:30500` and `registry.nessh:30500` name the same image; the pre-RC pod carries 9 restarts of history that a roll must not be judged on). Checked live: served image 0 failing reads but 9 restarts (fails, correctly, on that pod); an image no pod runs → unreadable; unreachable URL → 3 failing; wrong namespace → both unreadable.
+
 ## 2026-09-23 — the gate's first customer: a Makefile the gate reads, and the tests as the fix
 - Lane 1 demonstrated the commit-gate's first real refusal on this repo at 99f0c23 (`ipsa gate .` →
   REFUSED `no_gate`, nothing written, the refusal printing the Makefile to declare). This commit is the fix
