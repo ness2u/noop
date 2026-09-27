@@ -27,10 +27,12 @@ spec:
         - name: noop-service
           # registry.nessh:30500 is the estate's stable registry name (one registry, on
           # ness-server2 since 2026-09-08; the linux3 names are containerd mirror aliases
-          # only — todo.md, answered 2026-09-22). The tag is still a floating one: the
-          # gate's release-candidate tag replaces it when lane 1 lands it.
-          image: registry.nessh:30500/loch-nessh/noop:master_latest
-          imagePullPolicy: Always
+          # only — todo.md, answered 2026-09-22). A stamped tag, never a floating one: the
+          # gate's candidate release-candidate/noop/23a1113 (a linux/amd64 + linux/arm64 index —
+          # this pod lands on ness-cloud4, arm64). A stamp is immutable, so the node's copy is
+          # the image; a pull on every restart would only add a registry dependency.
+          image: registry.nessh:30500/loch-nessh/noop:2026.270.214444
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               name: http
