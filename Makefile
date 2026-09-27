@@ -24,12 +24,15 @@ run: build
 # manifest's current tag, `master_latest` today); minting ignores it on purpose.
 STAMP_FILE := target/image-stamp
 IMAGE_REPO := registry.nessh:30500/loch-nessh/noop
+# The platforms every image carries: ness-cloud4 (noop's nodeSelector) is arm64, the rest amd64.
+PLATFORMS := linux/amd64 linux/arm64
 
 image:
 	@mkdir -p target
 	$(eval VERSION ?= $(shell date -u +%Y.%j.%H%M%S))
 	printf '%s' "$(VERSION)" > $(STAMP_FILE)
-	podman build --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(VERSION) .
+	@! podman manifest exists $(IMAGE_REPO):$(VERSION) || podman manifest rm $(IMAGE_REPO):$(VERSION) >/dev/null
+	podman build --platform $(shell echo $(PLATFORMS) | tr ' ' ',') --build-arg VERSION=$(VERSION) --manifest $(IMAGE_REPO):$(VERSION) .
 	@echo "built $(IMAGE_REPO):$(VERSION) (stamp in $(STAMP_FILE))"
 
 # The publish half of an RC (`ipsa gate --rc` checks rc:published against the registry's
@@ -37,8 +40,29 @@ image:
 # --tls-verify=false. Refuses, loudly, when no stamp file exists.
 publish:
 	@test -s $(STAMP_FILE) || { echo "no stamp: run 'make image' first ($(STAMP_FILE) missing)"; exit 1; }
-	podman push --tls-verify=false $(IMAGE_REPO):$$(cat $(STAMP_FILE))
+	podman manifest push --all --tls-verify=false $(IMAGE_REPO):$$(cat $(STAMP_FILE)) docker://$(IMAGE_REPO):$$(cat $(STAMP_FILE))
 	@echo "published $(IMAGE_REPO):$$(cat $(STAMP_FILE))"
+
+# Every platform the cluster can schedule noop onto must RUN the image: ness-cloud4 (the
+# control-plane nodeSelector) is arm64, the build box amd64 — a 2026.268 RC built amd64-only would
+# have crash-looped on cloud4. Each variant is run with PORT=off, so the listener fails right after
+# the startup line and nothing is left running; the line must name this stamp AND the platform's
+# arch as the binary sees it (runtime.GOARCH), so a variant podman silently swapped for the host's
+# cannot pass. arm64 runs under qemu-user here. No pipes: the output is matched with `case`.
+
+.PHONY: test-image
+test-image:
+	@test -s $(STAMP_FILE) || { echo "no stamp: run 'make image' first ($(STAMP_FILE) missing)"; exit 1; }
+	@s=$$(cat $(STAMP_FILE)); fail=0; \
+	for p in $(PLATFORMS); do \
+	  arch=$${p#*/}; \
+	  out=$$(podman run --rm --pull=never --platform $$p -e PORT=off $(IMAGE_REPO):$$s 2>&1); \
+	  case "$$out" in \
+	    *'"noop starting"'*'"version":"'"$$s"'"'*'"arch":"'"$$arch"'"'*) echo "ok $$p: runs, version $$s, arch $$arch" ;; \
+	    *) echo "FAIL $$p: no startup line naming version $$s and arch $$arch; got: $$out"; fail=$$((fail+1)) ;; \
+	  esac; \
+	done; \
+	[ $$fail -eq 0 ] && echo "PASS $(IMAGE_REPO):$$s on $(PLATFORMS)"
 
 # The watch (ipsa enact deploy reads `make -s watch` by convention; shtoned 50e51c02's shape).
 # Each counter prints `counter=<name> count=<n>` or `counter=<name> unreadable=<why>` — never a

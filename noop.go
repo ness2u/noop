@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -176,7 +177,9 @@ func newMux() *http.ServeMux {
 func main() {
 	port := ":" + getenv("PORT", "8080")
 	chaosEnabled = getenv("ENABLE_CHAOS", "false") == "true"
-	logger.Info("noop starting", "addr", port, "version", version, "chaos", chaosEnabled, "log_level", getenv("LOG_LEVEL", "info"))
+	// os/arch are what this binary EXECUTES as: `make test-image` runs every platform variant and
+	// reads them here, so an image that silently fell back to the build host's arch cannot pass.
+	logger.Info("noop starting", "addr", port, "version", version, "os", runtime.GOOS, "arch", runtime.GOARCH, "chaos", chaosEnabled, "log_level", getenv("LOG_LEVEL", "info"))
 
 	server := &http.Server{Addr: port, Handler: observe(newMux())}
 	trackConnections(server)
