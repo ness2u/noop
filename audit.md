@@ -1,3 +1,13 @@
+## 2026-09-28 — demo step 8 proven live: a bad candidate rolls back by stamp (ness ran both deploys; verified by ipsa-agent-4b)
+
+- **Baseline, 02:26Z** (`.ipsa/runs/20260928T022606Z`): `ipsa enact deploy` put noop-service (`ness2u-xyz-live`, ness-cloud4 arm64) onto `2026.270.214444` = `release-candidate/noop/23a1113`. Every step settled. The rollout took 16 s, and the 90 s watch came back clean: healthz 200×3, 0 restarts. This replaced `master_latest`.
+- **Bad candidate, 02:28Z** (the fixture worktree `~/.cache/ipsa-fixture/noop`, `.ipsa/runs/20260928T022805Z`): the image was `2026.270.214707-fixture-bad`, which exits 30 s after start.
+  - The pod went Ready. Its healthz still read 200×3.
+  - The watch failed at 97.8 s on **restarts=2** (`watch_failed`).
+  - `rolled_back=true` by the stamp read before the apply: `set image … noop:2026.270.214444`, image only, since the diff beyond the image was false. `rollback_verify` was ok.
+- **Read back afterwards:** the deployment names `2026.270.214444`, and its pod is 1/1 with 0 restarts.
+- **For the demo:** the failure is caught by the restart counter, not by health. A candidate that crashes on a timer stays healthy between restarts. That's why the watch has two counters.
+
 ## 2026-09-27 — images carry linux/arm64 again: noop runs on ness-cloud4, which is arm64 (ipsa-agent-4b, lane 1; the TPM's go)
 
 Found while putting noop onto stamped images for the demo. The only candidate, `release-candidate/noop/8081305` = `2026.268.213753`, is **amd64 only** (its config blob: `architecture: amd64`). noop's nodeSelector (`workload.ness2u.xyz/control-plane`) places it on **ness-cloud4, arm64**, where that image cannot exec its binary. What runs there today, `master_latest`, is a two-platform index from the old tekton `buildah-multiarch` pipeline; the Makefile `image` target that replaced it (d560c6e/8081305) dropped arm64. Rolling the RC would have crash-looped on stage.
