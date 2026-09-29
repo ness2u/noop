@@ -204,6 +204,30 @@ func TestAHandlerPanicIsALoggedFiveHundredNotADroppedConnection(t *testing.T) {
 	}
 }
 
+// The public listener is the one a Service or an Ingress can name, so the chaos
+// routes are never on it, chaos on or off. Checked by the mux's own routing
+// (no request is served, so no crash is ever armed in the test binary).
+func TestChaosRoutesAreNeverOnThePublicListener(t *testing.T) {
+	chaosEnabled = true
+	t.Cleanup(func() { chaosEnabled = false })
+	public := newMux()
+	for _, p := range []string{"/latency", "/memory-leak", "/spin-cpu", "/crash"} {
+		if _, pattern := public.Handler(httptest.NewRequest(http.MethodGet, p, nil)); pattern != "/" {
+			t.Errorf("the public listener routes %s to %q with chaos on; only the catch-all may answer it", p, pattern)
+		}
+	}
+}
+
+// /version is served on the public listener: it says what build runs, not
+// whether the process can be made to fail.
+func TestVersionDoesNotAdvertiseChaos(t *testing.T) {
+	s := serve(t)
+	_, body := get(t, s.URL+"/version", nil)
+	if strings.Contains(body, "chaos") {
+		t.Errorf("/version names chaos on the public listener: %s", body)
+	}
+}
+
 func TestChaosEndpointsAreNotRegisteredWhenChaosIsOff(t *testing.T) {
 	// The root route is a catch-all, so an unregistered /latency answers the
 	// root's "nothing" — never a slow response, never an injection.
