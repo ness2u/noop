@@ -164,14 +164,32 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/download", downloadHandler)
 	mux.HandleFunc("/throughput", throughputHandler)
 
-	// chaos
-	if chaosEnabled {
-		mux.HandleFunc("/latency", latencyHandler)
-		mux.HandleFunc("/memory-leak", leakHandler)
-		mux.HandleFunc("/spin-cpu", cpuHandler)
-		mux.HandleFunc("/crash", crashHandler)
-	}
+	// No chaos here, whatever ENABLE_CHAOS says: this is the listener a Service
+	// or an Ingress can name, and anything on it is open to whoever reaches it.
 	return mux
+}
+
+// newChaosMux is the private listener's routes: the injections, and nothing
+// else. It is served only when chaos is on, on chaosAddr().
+func newChaosMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/latency", latencyHandler)
+	mux.HandleFunc("/memory-leak", leakHandler)
+	mux.HandleFunc("/spin-cpu", cpuHandler)
+	mux.HandleFunc("/crash", crashHandler)
+	return mux
+}
+
+// chaosAddr is where the chaos listener binds: nowhere when chaos is off, and
+// loopback only when it is on. Loopback, not every interface: in a pod, only
+// the pod itself and a port-forward (which the caller's own cluster
+// permission governs) can reach it; no other pod can by the pod's IP, whatever
+// the network policy. CHAOS_PORT moves the port, never the address.
+func chaosAddr() string {
+	if !chaosEnabled {
+		return ""
+	}
+	return "127.0.0.1:" + getenv("CHAOS_PORT", "8081")
 }
 
 func main() {
@@ -179,7 +197,18 @@ func main() {
 	chaosEnabled = getenv("ENABLE_CHAOS", "false") == "true"
 	// os/arch are what this binary EXECUTES as: `make test-image` runs every platform variant and
 	// reads them here, so an image that silently fell back to the build host's arch cannot pass.
-	logger.Info("noop starting", "addr", port, "version", version, "os", runtime.GOOS, "arch", runtime.GOARCH, "chaos", chaosEnabled, "log_level", getenv("LOG_LEVEL", "info"))
+	logger.Info("noop starting", "addr", port, "version", version, "os", runtime.GOOS, "arch", runtime.GOARCH, "chaos", chaosEnabled, "chaos_addr", chaosAddr(), "log_level", getenv("LOG_LEVEL", "info"))
+
+	if addr := chaosAddr(); addr != "" {
+		chaos := &http.Server{Addr: addr, Handler: observe(newChaosMux())}
+		go func() {
+			// Asked for and not served is a failure to start, not a quiet degradation:
+			// a demo that injects into a listener that never bound would find nothing.
+			err := chaos.ListenAndServe()
+			logger.Error("noop chaos listener stopped", "addr", addr, "err", err.Error())
+			os.Exit(1)
+		}()
+	}
 
 	server := &http.Server{Addr: port, Handler: observe(newMux())}
 	trackConnections(server)

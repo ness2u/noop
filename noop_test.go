@@ -55,7 +55,7 @@ func TestEveryEndpointAnswersWithItsStatusAndBody(t *testing.T) {
 		{"/healthz", 200, "OK"},
 		{"/status?code=503", 503, "nothing"},
 		{"/status?code=notanumber", 418, "nothing"},
-		{"/latency?ms=20", 200, "a slow response - 20 ms"},
+		{"/latency?ms=20", 200, "nothing"}, // chaos is on, and still not here
 		{"/version", 200, ""},
 		{"/metrics", 200, ""},
 	}
@@ -178,13 +178,12 @@ func TestVersionIsJsonAndCarriesTheBuildStamp(t *testing.T) {
 	var v struct {
 		Version string  `json:"version"`
 		Go      string  `json:"go"`
-		Chaos   bool    `json:"chaos"`
 		Uptime  float64 `json:"uptime_seconds"`
 	}
 	if err := json.Unmarshal([]byte(body), &v); err != nil {
 		t.Fatalf("version is not json: %v (%s)", err, body)
 	}
-	if v.Version != version || v.Go == "" || !v.Chaos {
+	if v.Version != version || v.Go == "" {
 		t.Fatalf("version body: %+v", v)
 	}
 }
@@ -215,6 +214,44 @@ func TestChaosRoutesAreNeverOnThePublicListener(t *testing.T) {
 		if _, pattern := public.Handler(httptest.NewRequest(http.MethodGet, p, nil)); pattern != "/" {
 			t.Errorf("the public listener routes %s to %q with chaos on; only the catch-all may answer it", p, pattern)
 		}
+	}
+}
+
+// The private listener serves the injections. /latency is the one safe to
+// exercise here; the rest are checked by routing, so nothing is armed.
+func TestTheChaosListenerServesTheInjections(t *testing.T) {
+	private := newChaosMux()
+	for _, p := range []string{"/latency", "/memory-leak", "/spin-cpu", "/crash"} {
+		if _, pattern := private.Handler(httptest.NewRequest(http.MethodGet, p, nil)); pattern != p {
+			t.Errorf("the chaos listener routes %s to %q", p, pattern)
+		}
+	}
+	s := httptest.NewServer(observe(private))
+	defer s.Close()
+	before := metrics.latencyInduced.Load()
+	if _, body := get(t, s.URL+"/latency?ms=20", nil); body != "a slow response - 20 ms" {
+		t.Fatalf("latency on the chaos listener: %q", body)
+	}
+	if metrics.latencyInduced.Load() != before+20 {
+		t.Fatalf("latency not counted")
+	}
+}
+
+// Off by default opens no second port; on, it binds loopback only, and
+// CHAOS_PORT moves the port, never the address.
+func TestTheChaosListenerIsLoopbackOnlyAndAbsentWhenOff(t *testing.T) {
+	t.Cleanup(func() { chaosEnabled = false })
+	chaosEnabled = false
+	if a := chaosAddr(); a != "" {
+		t.Fatalf("chaos off still opens %q", a)
+	}
+	chaosEnabled = true
+	if a := chaosAddr(); a != "127.0.0.1:8081" {
+		t.Fatalf("default chaos addr %q", a)
+	}
+	t.Setenv("CHAOS_PORT", "9099")
+	if a := chaosAddr(); a != "127.0.0.1:9099" {
+		t.Fatalf("CHAOS_PORT addr %q", a)
 	}
 }
 

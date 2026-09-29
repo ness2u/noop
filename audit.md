@@ -1,3 +1,12 @@
+## 2026-09-29 — chaos moves to a private loopback listener; the public one never carries it (lane 1b)
+
+noop's public listener is the one a Service and an Ingress name. With `ENABLE_CHAOS=true`, `/crash`, `/memory-leak`, `/spin-cpu` and `/latency` were served on it, so turning chaos on for a demo would have opened them to anyone who could reach the service. `/version` also said `"chaos"` to every caller.
+- **Now:** chaos on starts a second listener on `127.0.0.1:${CHAOS_PORT:-8081}`, carrying only the injections. The public mux never registers them, whatever the flag says. Chaos off opens no second port. Loopback, not every interface: in a pod, only the pod itself and a port-forward can reach it, and the caller's own cluster permission governs the port-forward. No other pod can reach it by IP, whatever the network policy. If the chaos listener fails to bind, noop exits 1: chaos asked for and not served is a failed start.
+- `/version` is now `{version, go, uptime_seconds}`. `noop_chaos_enabled` stays on `/metrics`, since a verdict reads what was injected there.
+- **Red:** 34f16a6. With chaos on, the public mux routed all four chaos paths, and `/version` carried `"chaos":true`. The check uses the mux's own routing, so no crash is armed in the test binary.
+- **Green:** `make check` (vet, build, `go test -race`, 13 tests). The binary was run once each way. On: `127.0.0.1:18081` and `*:18080` listening; public `/latency` and `/crash` → `nothing`; private `/latency` → a slow response; the private port by the host's own address → no answer. Off: only `*:18080`.
+- **Not done here:** turning chaos on in a deployment, which is a spec change on the owner's word.
+
 ## 2026-09-28 — demo step 8 proven live: a bad candidate rolls back by stamp (ness ran both deploys; verified by ipsa-agent-4b)
 
 - **Baseline, 02:26Z** (`.ipsa/runs/20260928T022606Z`): `ipsa enact deploy` put noop-service (`ness2u-xyz-live`, ness-cloud4 arm64) onto `2026.270.214444` = `release-candidate/noop/23a1113`. Every step settled. The rollout took 16 s, and the 90 s watch came back clean: healthz 200×3, 0 restarts. This replaced `master_latest`.

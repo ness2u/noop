@@ -131,7 +131,7 @@ func (m *metricsStore) render(w *strings.Builder) {
 	fmt.Fprintf(w, "noop_build_info{version=%q,go=%q} 1\n", version, runtime.Version())
 	fmt.Fprintf(w, "# HELP noop_uptime_seconds Seconds since the process started.\n# TYPE noop_uptime_seconds gauge\n")
 	fmt.Fprintf(w, "noop_uptime_seconds %.3f\n", time.Since(startedAt).Seconds())
-	fmt.Fprintf(w, "# HELP noop_chaos_enabled 1 when ENABLE_CHAOS=true and the chaos endpoints are registered.\n# TYPE noop_chaos_enabled gauge\n")
+	fmt.Fprintf(w, "# HELP noop_chaos_enabled 1 when ENABLE_CHAOS=true and the chaos endpoints are served on the private loopback listener.\n# TYPE noop_chaos_enabled gauge\n")
 	fmt.Fprintf(w, "noop_chaos_enabled %d\n", boolInt(chaosEnabled))
 
 	fmt.Fprintf(w, "# HELP noop_http_requests_total Requests served, by method, path and status.\n# TYPE noop_http_requests_total counter\n")
@@ -222,7 +222,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 
 func versionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, "{\"version\":%q,\"go\":%q,\"chaos\":%t,\"uptime_seconds\":%.0f}\n", version, runtime.Version(), chaosEnabled, time.Since(startedAt).Seconds())
+	fmt.Fprintf(w, "{\"version\":%q,\"go\":%q,\"uptime_seconds\":%.0f}\n", version, runtime.Version(), time.Since(startedAt).Seconds())
 }
 
 // ── the middleware ───────────────────────────────────────────────────────────

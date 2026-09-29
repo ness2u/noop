@@ -16,7 +16,7 @@ PORT=8080 ENABLE_CHAOS=true ./noop
 # or with podman
 podman run --rm -ti -p 8080:8080 noop:latest
 # or with podman and chaos
-podman run --rm -ti -p 8080:8080 -e ENABLE_CHAOS=true noop:latest
+podman run --rm -ti -p 8080:8080 -e ENABLE_CHAOS=true noop:latest   # chaos stays inside: podman exec … curl 127.0.0.1:8081/…
 ```
 
 ## what it emits about itself
@@ -29,7 +29,7 @@ podman run --rm -ti -p 8080:8080 -e ENABLE_CHAOS=true noop:latest
   uptime; Go heap/goroutines/GC; and `noop_chaos_*` for every injection (leak bytes and active
   leaks, cpu spinners, crash armed, latency induced) so what was injected is readable next to
   what it did.
-- `/version` — `{"version","go","chaos","uptime_seconds"}`. Stamp the version at build time:
+- `/version` — `{"version","go","uptime_seconds"}`. Stamp the version at build time:
   `go build -ldflags "-X main.version=<stamp>"` or `podman build --build-arg VERSION=<stamp>`.
 
 ## what it does
@@ -41,7 +41,13 @@ podman run --rm -ti -p 8080:8080 -e ENABLE_CHAOS=true noop:latest
 - `/download?size=<bytes>` streams text bytes (ASCII lorem pattern) with exact length.
 - `/throughput?bps=<bytes-per-second>&size=<bytes>` streams ASCII text paced to a per-connection target Bps; repeated calls on the same TCP connection update the target Bps.
 
-### chaos (enabled via `ENABLE_CHAOS=true`)
+### chaos (enabled via `ENABLE_CHAOS=true`, on a private listener)
+With chaos on, these routes are served on a **second listener bound to `127.0.0.1:8081`** (`CHAOS_PORT`
+moves the port, never the address), and never on `PORT`: the public listener is the one a Service or
+an Ingress names, so it carries no way to make the process fail. Reach them from inside the container,
+or with `kubectl port-forward pod/<pod> 8081`, which your own cluster permission governs. With chaos
+off there is no second listener at all.
+
 - `/latency?ms=<latency-ms>` to induce a slow response.
 - `/memory-leak?rate=<bytes-per-leak>&rate=<ms-between-leaks>` to induce a controlled, yet unrecoverable memory leak.
 - `/spin-cpu?count=<num-of-spin-routines>&delay=<ms-before-start>&time=<duration-ms-of-spin>` to spin the cpu in various ways.	
