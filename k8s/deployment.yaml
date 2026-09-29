@@ -28,10 +28,10 @@ spec:
           # registry.nessh:30500 is the estate's stable registry name (one registry, on
           # ness-server2 since 2026-09-08; the linux3 names are containerd mirror aliases
           # only — todo.md, answered 2026-09-22). A stamped tag, never a floating one: the
-          # gate's candidate release-candidate/noop/23a1113 (a linux/amd64 + linux/arm64 index —
+          # gate's candidate release-candidate/noop/cbf5027 (a linux/amd64 + linux/arm64 index —
           # this pod lands on ness-cloud4, arm64). A stamp is immutable, so the node's copy is
           # the image; a pull on every restart would only add a registry dependency.
-          image: registry.nessh:30500/loch-nessh/noop:2026.270.214444
+          image: registry.nessh:30500/loch-nessh/noop:2026.272.182749
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -41,6 +41,11 @@ spec:
               value: "8080"
             - name: LOG_LEVEL
               value: "info"
+            # The injections on a private listener, 127.0.0.1:8081 inside the pod only (cbf5027):
+            # never on the public port, and no Service or Ingress names 8081. Reached by
+            # kubectl port-forward, which the caller's own cluster permission governs.
+            - name: ENABLE_CHAOS
+              value: "true"
           livenessProbe:
             httpGet:
               path: /healthz
