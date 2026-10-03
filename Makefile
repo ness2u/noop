@@ -20,8 +20,9 @@ run: build
 # The deploy contract's shape (ipsa gate --rc; deploy-routine.md §5): `image` and `publish`
 # run as SEPARATE make invocations, so the stamp is decided ONCE, by `image`, and written to
 # STAMP_FILE; `publish` reads it from there, never from the clock — or two invocations would
-# mint two stamps and publish one that was never built. The gate exports IPSA_STAMP (the
-# manifest's current tag, `master_latest` today); minting ignores it on purpose.
+# mint two stamps and publish one that was never built. Before the build the gate exports
+# IPSA_STAMP and IPSA_IMAGE empty (no stamp exists yet) and the manifest's current tag as
+# IPSA_MANIFEST_STAMP (ipsa f38f90a1); minting reads none of them, on purpose.
 STAMP_FILE := target/image-stamp
 IMAGE_REPO := registry.nessh:30500/loch-nessh/noop
 # The platforms every image carries: ness-cloud4 (noop's nodeSelector) is arm64, the rest amd64.
