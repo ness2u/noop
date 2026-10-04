@@ -31,7 +31,7 @@ spec:
           # gate's candidate release-candidate/noop/cbf5027 (a linux/amd64 + linux/arm64 index —
           # this pod lands on ness-cloud4, arm64). A stamp is immutable, so the node's copy is
           # the image; a pull on every restart would only add a registry dependency.
-          image: registry.nessh:30500/loch-nessh/noop:2026.272.182749
+          image: registry.nessh:30500/loch-nessh/noop:2026.277.051121
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
