@@ -65,8 +65,8 @@ func correlationID(r *http.Request) string {
 var durationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
 
 type reqKey struct {
-	method, path string
-	status       int
+	method, route string
+	status        int
 }
 
 type histogram struct {
@@ -81,7 +81,7 @@ type metricsStore struct {
 	mu        sync.Mutex
 	requests  map[reqKey]uint64
 	bytes     map[reqKey]uint64
-	durations map[string]*histogram // by path
+	durations map[string]*histogram // by route
 	inflight  atomic.Int64
 	panics    atomic.Uint64
 	// chaos
@@ -98,18 +98,18 @@ var metrics = &metricsStore{
 	durations: map[string]*histogram{},
 }
 
-func (m *metricsStore) observe(method, path string, status int, n int64, d time.Duration) {
-	k := reqKey{method, path, status}
+func (m *metricsStore) observe(method, route string, status int, n int64, d time.Duration) {
+	k := reqKey{method, route, status}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests[k]++
 	if n > 0 {
 		m.bytes[k] += uint64(n)
 	}
-	h := m.durations[path]
+	h := m.durations[route]
 	if h == nil {
 		h = &histogram{counts: make([]uint64, len(durationBuckets))}
-		m.durations[path] = h
+		m.durations[route] = h
 	}
 	s := d.Seconds()
 	for i, ub := range durationBuckets {
@@ -134,14 +134,14 @@ func (m *metricsStore) render(w *strings.Builder) {
 	fmt.Fprintf(w, "# HELP noop_chaos_enabled 1 when ENABLE_CHAOS=true and the chaos endpoints are served on the private loopback listener.\n# TYPE noop_chaos_enabled gauge\n")
 	fmt.Fprintf(w, "noop_chaos_enabled %d\n", boolInt(chaosEnabled))
 
-	fmt.Fprintf(w, "# HELP noop_http_requests_total Requests served, by method, path and status.\n# TYPE noop_http_requests_total counter\n")
+	fmt.Fprintf(w, "# HELP noop_http_requests_total Requests served, by method, route and status.\n# TYPE noop_http_requests_total counter\n")
 	keys := make([]reqKey, 0, len(m.requests))
 	for k := range m.requests {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].path != keys[j].path {
-			return keys[i].path < keys[j].path
+		if keys[i].route != keys[j].route {
+			return keys[i].route < keys[j].route
 		}
 		if keys[i].method != keys[j].method {
 			return keys[i].method < keys[j].method
@@ -149,15 +149,15 @@ func (m *metricsStore) render(w *strings.Builder) {
 		return keys[i].status < keys[j].status
 	})
 	for _, k := range keys {
-		fmt.Fprintf(w, "noop_http_requests_total{method=%q,path=%q,status=\"%d\"} %d\n", k.method, k.path, k.status, m.requests[k])
+		fmt.Fprintf(w, "noop_http_requests_total{method=%q,route=%q,status=\"%d\"} %d\n", k.method, k.route, k.status, m.requests[k])
 	}
-	fmt.Fprintf(w, "# HELP noop_http_response_bytes_total Response body bytes written, by method, path and status.\n# TYPE noop_http_response_bytes_total counter\n")
+	fmt.Fprintf(w, "# HELP noop_http_response_bytes_total Response body bytes written, by method, route and status.\n# TYPE noop_http_response_bytes_total counter\n")
 	for _, k := range keys {
 		if b, ok := m.bytes[k]; ok {
-			fmt.Fprintf(w, "noop_http_response_bytes_total{method=%q,path=%q,status=\"%d\"} %d\n", k.method, k.path, k.status, b)
+			fmt.Fprintf(w, "noop_http_response_bytes_total{method=%q,route=%q,status=\"%d\"} %d\n", k.method, k.route, k.status, b)
 		}
 	}
-	fmt.Fprintf(w, "# HELP noop_http_request_duration_seconds Request duration, by path.\n# TYPE noop_http_request_duration_seconds histogram\n")
+	fmt.Fprintf(w, "# HELP noop_http_request_duration_seconds Request duration, by route.\n# TYPE noop_http_request_duration_seconds histogram\n")
 	paths := make([]string, 0, len(m.durations))
 	for p := range m.durations {
 		paths = append(paths, p)
@@ -168,11 +168,11 @@ func (m *metricsStore) render(w *strings.Builder) {
 		var cum uint64
 		for i, ub := range durationBuckets {
 			cum += h.counts[i]
-			fmt.Fprintf(w, "noop_http_request_duration_seconds_bucket{path=%q,le=%q} %d\n", p, strconv.FormatFloat(ub, 'g', -1, 64), cum)
+			fmt.Fprintf(w, "noop_http_request_duration_seconds_bucket{route=%q,le=%q} %d\n", p, strconv.FormatFloat(ub, 'g', -1, 64), cum)
 		}
-		fmt.Fprintf(w, "noop_http_request_duration_seconds_bucket{path=%q,le=\"+Inf\"} %d\n", p, h.count)
-		fmt.Fprintf(w, "noop_http_request_duration_seconds_sum{path=%q} %.6f\n", p, h.sum)
-		fmt.Fprintf(w, "noop_http_request_duration_seconds_count{path=%q} %d\n", p, h.count)
+		fmt.Fprintf(w, "noop_http_request_duration_seconds_bucket{route=%q,le=\"+Inf\"} %d\n", p, h.count)
+		fmt.Fprintf(w, "noop_http_request_duration_seconds_sum{route=%q} %.6f\n", p, h.sum)
+		fmt.Fprintf(w, "noop_http_request_duration_seconds_count{route=%q} %d\n", p, h.count)
 	}
 	fmt.Fprintf(w, "# HELP noop_http_inflight_requests Requests currently being served.\n# TYPE noop_http_inflight_requests gauge\n")
 	fmt.Fprintf(w, "noop_http_inflight_requests %d\n", m.inflight.Load())
@@ -272,8 +272,15 @@ func (r *recorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 // line per request, the metrics above, and a recovered panic logged as a 500
 // (net/http would otherwise drop the connection silently, which is exactly
 // the kind of failure that leaves no evidence).
-func observe(next http.Handler) http.Handler {
+//
+// The metrics are labelled by the ROUTE the mux matched, never the raw path:
+// internet scanners hit noop with /0.php, /123viva.php and the like, and each
+// raw path minted new series in the metrics store without bound (2026-10-04).
+// The log line keeps the raw path (consult verdict reads the paths from it).
+func observe(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, pattern := mux.Handler(r)
+		route := routeLabel(pattern, r.URL.Path)
 		start := time.Now()
 		cid := correlationID(r)
 		w.Header().Set("x-correlation-id", cid)
@@ -290,7 +297,7 @@ func observe(next http.Handler) http.Handler {
 				logger.Error("handler panic", "cid", cid, "method", r.Method, "path", r.URL.Path, "panic", fmt.Sprint(p))
 			}
 			d := time.Since(start)
-			metrics.observe(r.Method, r.URL.Path, rec.status, rec.bytes, d)
+			metrics.observe(r.Method, route, rec.status, rec.bytes, d)
 			logger.Info("request",
 				"cid", cid,
 				"method", r.Method,
@@ -303,6 +310,20 @@ func observe(next http.Handler) http.Handler {
 				"user_agent", r.UserAgent(),
 			)
 		}()
-		next.ServeHTTP(rec, r)
+		mux.ServeHTTP(rec, r)
 	})
+}
+
+// unmatched is the one label value every request no route claims shares.
+const unmatched = "unmatched"
+
+// routeLabel is the metrics label for a request: the pattern the mux matched,
+// or "unmatched". "/" is noop's catch-all, so a request that only it took (any
+// path but "/" itself) is unmatched too, or every scanner path would count as
+// the root.
+func routeLabel(pattern, path string) string {
+	if pattern == "" || (pattern == "/" && path != "/") {
+		return unmatched
+	}
+	return pattern
 }

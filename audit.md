@@ -1,3 +1,10 @@
+## 2026-10-04 — request metrics are labelled by route, not raw path (lane 1b; the TPM's ask)
+
+Internet scanners hit noop's public listener with paths like `/0.php`, `/123viva.php` and `/3PJcpMFsD8B.php`. `noop_http_requests_total`, `noop_http_response_bytes_total` and `noop_http_request_duration_seconds` labelled each with its raw `path`, so every scanner path minted new series in the metrics store, without bound.
+- **Now:** the label is `route`: the pattern the mux matched (`mux.Handler(r)`). Anything only the `/` catch-all took (any path but `/` itself), or no route at all, is `unmatched`, as my-server does. The label NAME changes too (`path` → `route`, my-server's name), so the old series age out with the store's retention. Nothing outside noop queried `path` (no dashboard spec, no ansible file).
+- **Kept:** the request log line still carries the raw path (`consult verdict` joins the window's logged paths).
+- **Red first:** `TestScannerPathsDoNotMintSeries` failed on the old code (the raw paths in `/metrics`, no `route`). It asserts deltas, because the store is process-wide. The older metrics test's `/latency` is a public-listener miss, so it now reads `unmatched`. `go vet` and `gofmt` are clean; `go test -race` ok.
+
 ## 2026-09-29 — chaos moves to a private loopback listener; the public one never carries it (lane 1b)
 
 noop's public listener is the one a Service and an Ingress name. With `ENABLE_CHAOS=true`, `/crash`, `/memory-leak`, `/spin-cpu` and `/latency` were served on it, so turning chaos on for a demo would have opened them to anyone who could reach the service. `/version` also said `"chaos"` to every caller.

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -137,15 +138,62 @@ func TestMirrorHidesCredentialHeaders(t *testing.T) {
 	}
 }
 
+// Internet scanners hit noop with paths like /0.php and /123viva.php; labelled by the raw path,
+// each one minted new series in the metrics store, without bound (the TPM, 2026-10-04). Requests
+// are labelled by the route the mux matched, and anything that only fell through to the "/"
+// catch-all is "unmatched" (as my-server does). The log line keeps the raw path.
+func TestScannerPathsDoNotMintSeries(t *testing.T) {
+	s := serve(t)
+	// The store is process-wide and other tests add to it: assert what THESE requests moved.
+	series := []string{
+		`noop_http_requests_total{method="GET",route="unmatched",status="200"}`,
+		`noop_http_requests_total{method="GET",route="/",status="200"}`,
+		`noop_http_requests_total{method="GET",route="/status",status="503"}`,
+		`noop_http_request_duration_seconds_count{route="unmatched"}`,
+	}
+	_, before := get(t, s.URL+"/metrics", nil)
+	for _, p := range []string{"/0.php", "/123viva.php", "/3PJcpMFsD8B.php", "/"} {
+		get(t, s.URL+p, nil)
+	}
+	get(t, s.URL+"/status?code=503", nil)
+	_, after := get(t, s.URL+"/metrics", nil)
+	for _, leak := range []string{"0.php", "123viva", "3PJcpMFsD8B"} {
+		if strings.Contains(after, leak) {
+			t.Errorf("metrics carry the raw scanner path %q", leak)
+		}
+	}
+	for i, want := range []float64{3, 1, 1, 3} {
+		if got := seriesValue(after, series[i]) - seriesValue(before, series[i]); got != want {
+			t.Errorf("%s moved by %v, want %v", series[i], got, want)
+		}
+	}
+	if !strings.Contains(after, `noop_http_response_bytes_total{method="GET",route="unmatched",status="200"} `) {
+		t.Errorf("metrics missing the unmatched bytes series")
+	}
+}
+
+// seriesValue is the value of one exposition series in a /metrics body (0 when absent).
+func seriesValue(body, series string) float64 {
+	for _, line := range strings.Split(body, "\n") {
+		if v, ok := strings.CutPrefix(line, series+" "); ok {
+			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+			if err == nil {
+				return f
+			}
+		}
+	}
+	return 0
+}
+
 func TestMetricsCarryRequestsByPathAndStatusAndTheChaosSeries(t *testing.T) {
 	s := serve(t)
 	get(t, s.URL+"/status?code=503", nil)
 	get(t, s.URL+"/latency?ms=5", nil)
 	_, body := get(t, s.URL+"/metrics", nil)
 	want := []string{
-		`noop_http_requests_total{method="GET",path="/status",status="503"} `,
-		`noop_http_requests_total{method="GET",path="/latency",status="200"} `,
-		`noop_http_request_duration_seconds_bucket{path="/latency",le="+Inf"} `,
+		`noop_http_requests_total{method="GET",route="/status",status="503"} `,
+		`noop_http_requests_total{method="GET",route="unmatched",status="200"} `, // /latency is not a public route
+		`noop_http_request_duration_seconds_bucket{route="unmatched",le="+Inf"} `,
 		"noop_chaos_enabled 1",
 		"noop_chaos_latency_induced_ms_total ",
 		"noop_chaos_leaks_active 0",
