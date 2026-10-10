@@ -87,6 +87,8 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: traefik
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # The Ingress names only the public listener (newMux); chaos is on the private one (newChaosMux, noop.go).
+    estate.ness2u.xyz/public: "internet: every route on the public listener is a no-op or a demo by design"
 spec:
   tls:
     - hosts:
