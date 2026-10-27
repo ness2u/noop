@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -300,6 +302,57 @@ func TestTheChaosListenerIsLoopbackOnlyAndAbsentWhenOff(t *testing.T) {
 	t.Setenv("CHAOS_PORT", "9099")
 	if a := chaosAddr(); a != "127.0.0.1:9099" {
 		t.Fatalf("CHAOS_PORT addr %q", a)
+	}
+}
+
+// The build stays in the cluster (ness 10-27: "i would not expose build-versions
+// publically"). Traefik adds X-Forwarded-* and X-Real-Ip to everything it
+// forwards, so a request carrying any of them came through the public edge and
+// gets neither the stamp nor the Go version; the in-cluster scrape and probes
+// come straight to the pod and keep them.
+var edgeHeaders = []map[string]string{
+	{"X-Forwarded-For": "203.0.113.7"},
+	{"X-Forwarded-Host": "noop.ness2u.xyz"},
+	{"X-Real-Ip": "203.0.113.7"},
+}
+
+func TestVersionThroughTheEdgeCarriesNoBuild(t *testing.T) {
+	s := serve(t)
+	for _, hdr := range edgeHeaders {
+		resp, body := get(t, s.URL+"/version", hdr)
+		var v map[string]any
+		if err := json.Unmarshal([]byte(body), &v); err != nil {
+			t.Fatalf("%v: version is not json: %v (%s)", hdr, err, body)
+		}
+		if resp.StatusCode != 200 {
+			t.Errorf("%v: status %d", hdr, resp.StatusCode)
+		}
+		if _, ok := v["version"]; ok {
+			t.Errorf("%v: /version carries the build through the edge: %s", hdr, body)
+		}
+		if _, ok := v["go"]; ok {
+			t.Errorf("%v: /version carries the Go version through the edge: %s", hdr, body)
+		}
+		if strings.Contains(body, version) {
+			t.Errorf("%v: the stamp %q appears in the body: %s", hdr, version, body)
+		}
+	}
+}
+
+func TestMetricsThroughTheEdgeCarryNoBuildInfo(t *testing.T) {
+	s := serve(t)
+	for _, hdr := range edgeHeaders {
+		_, body := get(t, s.URL+"/metrics", hdr)
+		if strings.Contains(body, "noop_build_info") || strings.Contains(body, runtime.Version()) {
+			t.Errorf("%v: /metrics carries build info through the edge", hdr)
+		}
+		if !strings.Contains(body, "noop_uptime_seconds") {
+			t.Errorf("%v: the rest of the exposition went missing", hdr)
+		}
+	}
+	_, body := get(t, s.URL+"/metrics", nil)
+	if !strings.Contains(body, fmt.Sprintf("noop_build_info{version=%q", version)) {
+		t.Errorf("the in-cluster scrape lost noop_build_info")
 	}
 }
 

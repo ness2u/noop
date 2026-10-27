@@ -1,3 +1,7 @@
+## NOW (2026-10-27 04:1xZ, the ipsa-SC worker; noop has no lane)
+
+- **Built, not served:** /version and /metrics drop the build through the public edge (ness 10-27, estate-wide; audit). Rolls next, on the TPM's slot; the 4f640bc Ingress annotation is the only other live difference, raised with the TPM first.
+
 ## `[ ]` Push two local tags in the TPM's batch after 18:00 PT (2026-09-25), by name — do not push them from a lane
 
 - `local-validated/noop/8081305`

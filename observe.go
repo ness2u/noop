@@ -123,12 +123,15 @@ func (m *metricsStore) observe(method, route string, status int, n int64, d time
 }
 
 // render writes the exposition. Series are sorted so two scrapes diff cleanly.
-func (m *metricsStore) render(w *strings.Builder) {
+// withBuild adds noop_build_info, which only the in-cluster scrape gets (viaEdge).
+func (m *metricsStore) render(w *strings.Builder, withBuild bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	fmt.Fprintf(w, "# HELP noop_build_info Build information.\n# TYPE noop_build_info gauge\n")
-	fmt.Fprintf(w, "noop_build_info{version=%q,go=%q} 1\n", version, runtime.Version())
+	if withBuild {
+		fmt.Fprintf(w, "# HELP noop_build_info Build information.\n# TYPE noop_build_info gauge\n")
+		fmt.Fprintf(w, "noop_build_info{version=%q,go=%q} 1\n", version, runtime.Version())
+	}
 	fmt.Fprintf(w, "# HELP noop_uptime_seconds Seconds since the process started.\n# TYPE noop_uptime_seconds gauge\n")
 	fmt.Fprintf(w, "noop_uptime_seconds %.3f\n", time.Since(startedAt).Seconds())
 	fmt.Fprintf(w, "# HELP noop_chaos_enabled 1 when ENABLE_CHAOS=true and the chaos endpoints are served on the private loopback listener.\n# TYPE noop_chaos_enabled gauge\n")
@@ -215,13 +218,17 @@ func boolInt(b bool) int {
 
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
-	metrics.render(&b)
+	metrics.render(&b, !viaEdge(r))
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, _ = fmt.Fprint(w, b.String())
 }
 
 func versionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if viaEdge(r) {
+		fmt.Fprintf(w, "{\"uptime_seconds\":%.0f}\n", time.Since(startedAt).Seconds())
+		return
+	}
 	fmt.Fprintf(w, "{\"version\":%q,\"go\":%q,\"uptime_seconds\":%.0f}\n", version, runtime.Version(), time.Since(startedAt).Seconds())
 }
 
@@ -326,4 +333,18 @@ func routeLabel(pattern, path string) string {
 		return unmatched
 	}
 	return pattern
+}
+
+// viaEdge reports whether the request came through the public edge: Traefik adds
+// these to everything it forwards, and an outsider cannot strip them. The build
+// stays in the cluster (ness 10-27: "i would not expose build-versions
+// publically"), so /version and /metrics drop it for such a request; the
+// Prometheus scrape and the kubelet come straight to the pod and keep it.
+func viaEdge(r *http.Request) bool {
+	for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Real-Ip"} {
+		if r.Header.Get(h) != "" {
+			return true
+		}
+	}
+	return false
 }
