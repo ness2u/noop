@@ -1,4 +1,4 @@
-## NOW (2026-10-27 04:1xZ, the ipsa-SC worker; noop has no lane)
+## NOW (2026-10-27 03:5xZ, the ipsa-SC worker; noop has no lane)
 
 - **Built, not served:** /version and /metrics drop the build through the public edge (ness 10-27, estate-wide; audit). Rolls next, on the TPM's slot; the 4f640bc Ingress annotation is the only other live difference, raised with the TPM first.
 

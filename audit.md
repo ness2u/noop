@@ -1,4 +1,4 @@
-## 2026-10-27 04:1xZ — /version and /metrics keep the build in the cluster (ness 10-27, estate-wide; the ipsa-SC worker, routed by the TPM)
+## 2026-10-27 03:5xZ — /version and /metrics keep the build in the cluster (ness 10-27, estate-wide; the ipsa-SC worker, routed by the TPM)
 
 ness: *"i would not expose build-versions publically"*, then *"Yes, estate-wide"* to the TPM. Read from outside 03:51Z: `https://noop.ness2u.xyz/version` answered `{"version":"2026.277.051121","go":"go1.25.14",…}`, and `/metrics` (the Ingress is `path: /`) carried `noop_build_info{version="2026.277.051121",go="go1.25.14"}`.
 - **Now:** a request carrying `X-Forwarded-For`, `X-Forwarded-Host` or `X-Real-Ip` (Traefik adds all three, read through `/mirror` 10-27; an outsider can't strip them) gets `/version` as `{uptime_seconds}` alone and `/metrics` without `noop_build_info`. The Prometheus scrape (pod IP, annotation) and the kubelet come straight to the pod and keep both. mcd's shape (SC 9a06516).
