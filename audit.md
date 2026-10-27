@@ -1,3 +1,10 @@
+## 2026-10-27 04:3xZ — 2026.300.035653 SERVED (the build stays in the cluster; ness typed "yup, roll away..." in git-0c ~04:2xZ)
+
+- **The annotation first, alone** (the TPM's plan; enact refuses an Ingress diff): `kubectl annotate ingress noop-ingress estate.ness2u.xyz/public=<the value in k8s/deployment.yaml>` 04:28:03Z, read back equal; undo with `…/public-`. Then `kubectl diff` from a clean worktree at 1612f96: the Deployment's image line only.
+- **Enact** 04:28:22Z (record `.ipsa/runs/20261027T042822Z` in that worktree), every step settled; rollback `2026.277.051121`, image only. The watch: 7 reads, 0 failing.
+- **Read back 04:30:33Z:** from outside `/version` is `{"uptime_seconds":109}` and `/metrics` has no `noop_build_info` and no Go version; at the pod IP, `/version` carries 2026.300.035653 and go1.25.14 and `noop_build_info` is there. One pod on ness-cloud4, 0 restarts; `kubectl diff` of the manifest is empty.
+- **Found:** the enact says drain evidence `NOT PROVEN: no deploy_log_fallback_cmd declared`; noop has no `drain-evidence` target (my-server's is the pattern). Not added here.
+
 ## 2026-10-27 03:5xZ — /version and /metrics keep the build in the cluster (ness 10-27, estate-wide; the ipsa-SC worker, routed by the TPM)
 
 ness: *"i would not expose build-versions publically"*, then *"Yes, estate-wide"* to the TPM. Read from outside 03:51Z: `https://noop.ness2u.xyz/version` answered `{"version":"2026.277.051121","go":"go1.25.14",…}`, and `/metrics` (the Ingress is `path: /`) carried `noop_build_info{version="2026.277.051121",go="go1.25.14"}`.
