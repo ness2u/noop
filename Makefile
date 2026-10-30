@@ -89,3 +89,27 @@ watch:
 	  if [ -z "$$sel" ]; then echo "counter=restarts unreadable=no pod runs $$IPSA_IMAGE yet ($$r)"; fail=$$((fail+1)); \
 	  else n=$$(printf '%s\n' $$sel | awk -F= 'NF==2 {s+=$$2} END {print s+0}'); echo "counter=restarts count=$$n ($$(echo $$sel))"; [ "$$n" -eq 0 ] || fail=$$((fail+1)); fi; fi; \
 	echo $$fail; [ $$fail -eq 0 ]
+
+# make -s drain-evidence: the drain read from the log sink AFTER the roll (ipsa enact's `deploy_log_fallback_cmd`,
+# found by this target's name). Declared 2026-10-30: the 10-27 enact (record 20261027T042822Z) read "NOT PROVEN:
+# no deploy_log_fallback_cmd declared". my-server's target, with noop's namespace and pod prefix: an old pod's
+# last lines exist only after it dies, so kubectl cannot read them and the sink keeps them. The newest 120 lines of
+# noop-service's pods since IPSA_T0 (the apply; 10 minutes ago if unset), printed oldest first, pod name in front.
+# Bounded (25 s): evidence, never a gate. The sink is ClickHouse (AR-052), read as `reader` from the
+# clickhouse-obs-reader Secret: the key goes to curl on stdin (-H @-), never argv or output. An unreadable sink
+# exits 1 with the reason on stderr, which enact records as NOT PROVEN.
+DRAIN_SQL = SELECT concat(replaceRegexpOne(replaceOne(toString(Timestamp), ' ', 'T'), '[.]?0+\$$', ''), 'Z'), ResourceAttributes['pod'], Body \
+  FROM otel.otel_logs WHERE ResourceAttributes['namespace'] = {ns:String} AND startsWith(ResourceAttributes['pod'], {pfx:String}) \
+  AND Timestamp >= parseDateTime64BestEffort({t0:String}, 9) ORDER BY Timestamp DESC LIMIT 120 FORMAT TSVRaw
+.PHONY: drain-evidence
+drain-evidence:
+	@ru=$$(kubectl -n monitoring get secret clickhouse-obs-reader -o jsonpath='{.data.user}' 2>/dev/null | base64 -d 2>/dev/null); \
+	rk=$$(kubectl -n monitoring get secret clickhouse-obs-reader -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null); \
+	ip=$$(kubectl -n monitoring get svc clickhouse-obs -o jsonpath='{.spec.clusterIP}' 2>/dev/null); \
+	[ -n "$$ip" ] || { echo "drain-evidence unreadable: no Service monitoring/clickhouse-obs" >&2; exit 1; }; \
+	{ [ -n "$$ru" ] && [ -n "$$rk" ]; } || { echo "drain-evidence unreadable: no user or key in monitoring/clickhouse-obs-reader" >&2; exit 1; }; \
+	t0="$${IPSA_T0:-}"; [ -n "$$t0" ] || t0=$$(date -u -d '-10 min' +%FT%TZ); \
+	out=$$(printf 'X-ClickHouse-User: %s\nX-ClickHouse-Key: %s\n' "$$ru" "$$rk" | curl -sS --fail-with-body --max-time 25 -H @- \
+	  "http://$$ip:8123/?param_t0=$$t0&param_ns=$(NOOP_NS)&param_pfx=noop-service-" --data-binary "$(DRAIN_SQL)" 2>&1) \
+	  || { echo "drain-evidence unreadable: ClickHouse answered: $$(printf '%s' "$$out" | head -c 300)" >&2; exit 1; }; \
+	[ -z "$$out" ] || printf '%s\n' "$$out" | sed 's/\x1b\[[0-9;]*m//g' | sort | cut -c1-240

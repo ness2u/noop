@@ -1,4 +1,3 @@
-// dummy comment for tekton multiarch build test
 package main
 
 import (
