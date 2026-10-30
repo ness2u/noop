@@ -1,8 +1,10 @@
 ## NOW (2026-10-27 03:5xZ, the ipsa-SC worker; noop has no lane)
 
-- **SERVED 10-27 04:3xZ `2026.300.035653`** (his word): /version and /metrics carry no build from outside; the Ingress annotation applied first. Rollback `2026.277.051121`. Open: a `drain-evidence` target (the enact said NOT PROVEN).
+- **SERVED 10-27 04:3xZ `2026.300.035653`** (his word): /version and /metrics carry no build from outside; the Ingress annotation applied first. Rollback `2026.277.051121`. `drain-evidence` declared 2026-10-30 (the enact had said NOT PROVEN); the next roll reads it.
 
-## `[ ]` Push two local tags in the TPM's batch after 18:00 PT (2026-09-25), by name — do not push them from a lane
+## `[x]` Push two local tags in the TPM's batch after 18:00 PT (2026-09-25), by name — do not push them from a lane
+
+*Closed 2026-10-30 (the small-task sweep): both tags are already on origin (`git ls-remote --tags origin`, read 2026-10-30). That RC is amd64-only and was never rolled (audit.md 2026-09-27); noop serves `2026.300.035653` = `release-candidate/noop/6bc9033`.*
 
 - `local-validated/noop/8081305`
 - `release-candidate/noop/8081305` → `registry.nessh:30500/loch-nessh/noop:2026.268.213753` (minted by `ipsa gate --rc` from a detached worktree at 8081305, 2026-09-25 21:37Z; record `.ipsa/runs/20260925T213751Z` in that worktree). Not rolled: the roll goes through the sre-agent (sequence depth 3), not by hand.
@@ -74,7 +76,7 @@
   endpoint's status and body, the middleware's status/bytes capture, `/metrics` parses and
   carries `noop_http_requests_total` after a request, `/count` under `-race`, and a panic in a
   handler yields a logged 500 rather than a dropped connection.
-- [ ] Build and push a stamped image (`--build-arg VERSION=<stamp>`, tag = stamp, never
+- [x] **DONE 2026-09-28** (audit.md 2026-09-28: `2026.270.214444` replaced `master_latest`; `k8s/deployment.yaml:34` pins `2026.300.035653` today; Tekton removed 2026-10-30). Was: Build and push a stamped image (`--build-arg VERSION=<stamp>`, tag = stamp, never
   `master_latest`) and roll it: through lane 1's gate and RC tag once they exist; until then the
   Tekton pipeline still pushes `master_latest`, which the deployment still pulls.
 - [ ] A regula `k8s` row for this repo once the kubectl pack exists: probes present (now true),

@@ -4,7 +4,13 @@ Read this first on entry; it overrides the general rules above it. *Seeded by `i
 
 ## Layout
 
-- `k8s/`
+- `noop.go`: the routes, the public and chaos listeners, `main`
+- `observe.go`: request logging, correlation ids, `/metrics` and `/version` (the build stays in the cluster)
+- `noop_test.go`: the suite over the real mux behind the real middleware (`make check`)
+- `Makefile`: `check` (vet, build, `go test -race`), `image`, `publish`, `test-image`, `watch`, `drain-evidence`
+- `Dockerfile`: the two-platform image (linux/amd64, linux/arm64)
+- `readme.md`: what it does and emits
+- `k8s/`: `deployment.yaml` (Deployment, Service, Ingress; the served stamp)
 - `wiki/`
 
 ## AI Interaction Rules

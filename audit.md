@@ -1,3 +1,9 @@
+## 2026-10-30 23:2xZ — drain-evidence declared; Tekton removed; docs match the code (the small-task sweep, rows 63–68)
+
+- **`make -s drain-evidence`** (the 10-27 enact read `NOT PROVEN: no deploy_log_fallback_cmd declared`): my-server's ClickHouse reader with noop's namespace (`NOOP_NS`, `ness2u-xyz-live`) and pod prefix `noop-service-`. Read once, read-only, 23:2xZ with `IPSA_T0=2026-10-27T04:20:00Z`: exit 0, 120 lines of `noop-service-9896b6b-jzh6p` (the newest 120, its probe traffic, as my-server's target keeps). An unreadable sink exits 1 with the reason on stderr. Not read by an enact until the next roll.
+- **Tekton removed** (`k8s/tekton/pipeline.yaml`, `pipelinerun.yaml`, and `noop.go`'s "dummy comment for tekton multiarch build test"): superseded by the Makefile's `image` / `test-image` / `publish` and `ipsa gate --rc` → `ipsa enact deploy`; Tekton is dropped estate-wide (10-06). `make check` green (vet, build, `go test -race`).
+- **Docs:** readme gives both `/version` shapes (in-cluster `{version,go,uptime_seconds}`; through the edge `{uptime_seconds}` and no `noop_build_info`, 6bc9033) and metrics per route, not path (10-04); AGENTS.md's layout lists the files. todo: the 8081305 tag push closed (both tags already on origin, read by `git ls-remote`); the stamped-image row ticked (done 09-28).
+
 ## 2026-10-27 04:3xZ — 2026.300.035653 SERVED (the build stays in the cluster; ness typed "yup, roll away..." in git-0c ~04:2xZ)
 
 - **The annotation first, alone** (the TPM's plan; enact refuses an Ingress diff): `kubectl annotate ingress noop-ingress estate.ness2u.xyz/public=<the value in k8s/deployment.yaml>` 04:28:03Z, read back equal; undo with `…/public-`. Then `kubectl diff` from a clean worktree at 1612f96: the Deployment's image line only.

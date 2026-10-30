@@ -25,11 +25,14 @@ podman run --rm -ti -p 8080:8080 -e ENABLE_CHAOS=true noop:latest   # chaos stay
 - `x-correlation-id` on every response: the caller's `X-Correlation-Id` (or the older
   `x-correlationId`) echoed, else one minted per request.
 - `/metrics` — Prometheus exposition, standard library only: requests, bytes and a duration
-  histogram per path; in-flight; recovered handler panics; the `/count` value; build info and
+  histogram per route (the mux pattern matched; anything else is `unmatched`); in-flight; recovered handler panics; the `/count` value; build info and
   uptime; Go heap/goroutines/GC; and `noop_chaos_*` for every injection (leak bytes and active
   leaks, cpu spinners, crash armed, latency induced) so what was injected is readable next to
   what it did.
-- `/version` — `{"version","go","uptime_seconds"}`. Stamp the version at build time:
+- `/version` — `{"version","go","uptime_seconds"}` to an in-cluster caller (the pod-IP scrape, the kubelet).
+  A request carrying `X-Forwarded-For`, `X-Forwarded-Host` or `X-Real-Ip` (Traefik adds all three, so every
+  request through the Ingress) gets `{"uptime_seconds"}` alone, and its `/metrics` has no `noop_build_info`:
+  no public build versions (ness, 2026-10-27, estate-wide; 6bc9033). Stamp the version at build time:
   `go build -ldflags "-X main.version=<stamp>"` or `podman build --build-arg VERSION=<stamp>`.
 
 ## what it does
